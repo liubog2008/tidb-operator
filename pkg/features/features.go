@@ -31,6 +31,7 @@ var (
 		StableScheduling:    true,
 		AdvancedStatefulSet: false,
 		AutoScaling:         false,
+		AWSEBSModifying:     false,
 	}
 	// DefaultFeatureGate is a shared global FeatureGate.
 	DefaultFeatureGate FeatureGate = NewDefaultFeatureGate()
@@ -45,6 +46,9 @@ const (
 
 	// AutoScaling controls whether to use TidbClusterAutoScaler to auto scale-in/out pods
 	AutoScaling string = "AutoScaling"
+
+	// AWSEBSModifying  controls whether allow to modify some args of underlay ebs
+	AWSEBSModifying string = "AWSEBSModifying"
 )
 
 type FeatureGate interface {
