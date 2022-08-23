@@ -414,6 +414,7 @@ const (
 const (
 	// ComponentVolumeResizing indicates that any volume of this component is resizing.
 	ComponentVolumeResizing string = "ComponentVolumeResizing"
+	ComponentVolumeSynced   string = "ComponentVolumeSynced"
 )
 
 // +k8s:openapi-gen=true
