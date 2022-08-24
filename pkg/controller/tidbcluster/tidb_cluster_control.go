@@ -14,18 +14,20 @@
 package tidbcluster
 
 import (
+	v1 "k8s.io/api/core/v1"
+	apiequality "k8s.io/apimachinery/pkg/api/equality"
+	errorutils "k8s.io/apimachinery/pkg/util/errors"
+	"k8s.io/client-go/tools/record"
+	"k8s.io/klog/v2"
+
 	"github.com/pingcap/tidb-operator/pkg/apis/pingcap/v1alpha1"
 	"github.com/pingcap/tidb-operator/pkg/apis/pingcap/v1alpha1/defaulting"
 	v1alpha1validation "github.com/pingcap/tidb-operator/pkg/apis/pingcap/v1alpha1/validation"
 	"github.com/pingcap/tidb-operator/pkg/controller"
 	"github.com/pingcap/tidb-operator/pkg/manager"
 	"github.com/pingcap/tidb-operator/pkg/manager/member"
+	"github.com/pingcap/tidb-operator/pkg/manager/volumes"
 	"github.com/pingcap/tidb-operator/pkg/metrics"
-	v1 "k8s.io/api/core/v1"
-	apiequality "k8s.io/apimachinery/pkg/api/equality"
-	errorutils "k8s.io/apimachinery/pkg/util/errors"
-	"k8s.io/client-go/tools/record"
-	"k8s.io/klog/v2"
 )
 
 // ControlInterface implements the control logic for updating TidbClusters and their children StatefulSets.
@@ -47,7 +49,8 @@ func NewDefaultTidbClusterControl(
 	metaManager manager.Manager,
 	orphanPodsCleaner member.OrphanPodsCleaner,
 	pvcCleaner member.PVCCleanerInterface,
-	pvcResizer member.PVCResizerInterface,
+	// pvcResizer member.PVCResizerInterface,
+	pvcModifier volumes.PVCModifierInterface,
 	pumpMemberManager manager.Manager,
 	tiflashMemberManager manager.Manager,
 	ticdcMemberManager manager.Manager,
@@ -64,7 +67,7 @@ func NewDefaultTidbClusterControl(
 		metaManager:              metaManager,
 		orphanPodsCleaner:        orphanPodsCleaner,
 		pvcCleaner:               pvcCleaner,
-		pvcResizer:               pvcResizer,
+		pvcModifier:              pvcModifier,
 		pumpMemberManager:        pumpMemberManager,
 		tiflashMemberManager:     tiflashMemberManager,
 		ticdcMemberManager:       ticdcMemberManager,
@@ -84,7 +87,7 @@ type defaultTidbClusterControl struct {
 	metaManager              manager.Manager
 	orphanPodsCleaner        member.OrphanPodsCleaner
 	pvcCleaner               member.PVCCleanerInterface
-	pvcResizer               member.PVCResizerInterface
+	pvcModifier              volumes.PVCModifierInterface
 	pumpMemberManager        manager.Manager
 	tiflashMemberManager     manager.Manager
 	ticdcMemberManager       manager.Manager
@@ -248,7 +251,7 @@ func (c *defaultTidbClusterControl) updateTidbCluster(tc *v1alpha1.TidbCluster) 
 	}
 
 	// resize PVC if necessary
-	if err := c.pvcResizer.Sync(tc); err != nil {
+	if err := c.pvcModifier.Sync(tc); err != nil {
 		return err
 	}
 
