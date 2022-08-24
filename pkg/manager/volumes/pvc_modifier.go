@@ -20,20 +20,21 @@ import (
 	"github.com/pingcap/tidb-operator/pkg/apis/pingcap/v1alpha1"
 	"github.com/pingcap/tidb-operator/pkg/controller"
 	"github.com/pingcap/tidb-operator/pkg/manager/volumes/delegation"
+	"github.com/pingcap/tidb-operator/pkg/manager/volumes/delegation/aws"
 )
 
 const (
-	annoKeyPVCSpecRevision     = "spec.tidb.pingcap.com/revison"
+	annoKeyPVCSpecRevision     = "spec.tidb.pingcap.com/revision"
 	annoKeyPVCSpecStorageClass = "spec.tidb.pingcap.com/storage-class"
 	annoKeyPVCSpecStorageSize  = "spec.tidb.pingcap.com/storage-size"
 
-	annoKeyPVCStatusRevision     = "status.tidb.pingcap.com/revison"
+	annoKeyPVCStatusRevision     = "status.tidb.pingcap.com/revision"
 	annoKeyPVCStatusStorageClass = "status.tidb.pingcap.com/storage-class"
 	annoKeyPVCStatusStorageSize  = "status.tidb.pingcap.com/storage-size"
 
 	annoKeyPVCLastTransitionTimestamp = "status.tidb.pingcap.com/last-transition-timestamp"
 
-	defaultModifyWaitingDuration = time.Hour * 6
+	defaultModifyWaitingDuration = time.Minute * 1
 )
 
 type VolumePhase int
@@ -61,6 +62,23 @@ const (
 	VolumePhaseModified
 )
 
+func (p VolumePhase) String() string {
+	switch p {
+	case VolumePhasePending:
+		return "Pending"
+	case VolumePhasePreparing:
+		return "Preparing"
+	case VolumePhaseWaitForLeaderEviction:
+		return "WaitForLeaderEviction"
+	case VolumePhaseModifying:
+		return "Modifying"
+	case VolumePhaseModified:
+		return "Modified"
+	}
+
+	return "Unknown"
+}
+
 type PVCModifierInterface interface {
 	Sync(tc *v1alpha1.TidbCluster) error
 }
@@ -79,9 +97,7 @@ func (sf *selectorFactory) NewSelector(instance string, mt v1alpha1.MemberType) 
 		return nil, fmt.Errorf("can't get selector for %v", mt)
 	}
 
-	selector.Add(*r)
-
-	return selector, nil
+	return selector.Add(*r), nil
 }
 
 // pd => pd
@@ -120,11 +136,30 @@ func NewSelectorFactory() (*selectorFactory, error) {
 	return sf, nil
 }
 
+func MustNewSelectorFactory() *selectorFactory {
+	sf, err := NewSelectorFactory()
+	if err != nil {
+		panic(err)
+	}
+
+	return sf
+}
+
 type pvcModifier struct {
 	deps *controller.Dependencies
 	sf   *selectorFactory
 
 	modifiers map[string]delegation.VolumeModifier
+}
+
+func NewPVCModifier(deps *controller.Dependencies) PVCModifierInterface {
+	return &pvcModifier{
+		deps: deps,
+		sf:   MustNewSelectorFactory(),
+		modifiers: map[string]delegation.VolumeModifier{
+			"aws": aws.NewEBSModifier(deps.AWSConfig),
+		},
+	}
 }
 
 type actualVolume struct {
@@ -163,9 +198,14 @@ func (p *pvcModifier) Sync(tc *v1alpha1.TidbCluster) error {
 	for _, comp := range components {
 		ctx, err := p.buildContextForTC(tc, comp)
 		if err != nil {
-			errs = append(errs, fmt.Errorf("build ctx used by resize for %s failed: %w", ctx.ComponentID(), err))
+			errs = append(errs, fmt.Errorf("build ctx used by modifier for %s failed: %w", ctx.ComponentID(), err))
 			continue
 		}
+		if ctx.pod == nil || len(ctx.actualVolumes) == 0 {
+			klog.Infof("no volumes for %v now", ctx.ComponentID())
+			continue
+		}
+		klog.Infof("context of volumes: %v", ctx)
 
 		// TODO
 		// p.updateVolumeStatus(ctx)
@@ -313,6 +353,8 @@ func (p *pvcModifier) buildContextForTC(tc *v1alpha1.TidbCluster, status v1alpha
 	}
 	ctx.desiredVolumes = vs
 
+	klog.Infof("desired volumes: %v", vs)
+
 	selectedPod, actualVolumes, err := p.getActualVolumes(tc, comp, vs)
 	if err != nil {
 		return nil, err
@@ -342,31 +384,17 @@ func waitForNextTime(pvc *corev1.PersistentVolumeClaim) bool {
 	}
 	d := time.Since(timestamp)
 
-	return d > defaultModifyWaitingDuration
+	return d < defaultModifyWaitingDuration
 }
 
 func needModify(actual *actualVolume, desired *desiredVolume) bool {
-	scName, ok := actual.pvc.Annotations[annoKeyPVCStatusStorageClass]
-	if !ok {
-		scName = ignoreNil(actual.pvc.Spec.StorageClassName)
-	}
-	if !isStorageClassMatched(desired.sc, scName) {
-		return true
+	size := desired.size.String()
+	scName := ""
+	if desired.sc != nil {
+		scName = desired.sc.Name
 	}
 
-	str, ok := actual.pvc.Annotations[annoKeyPVCStatusStorageSize]
-	if ok {
-		sz, err := resource.ParseQuantity(str)
-		if err != nil {
-			return true
-		}
-		if !desired.size.Equal(sz) {
-			return true
-		}
-	}
-
-	size := getStorageSize(actual.pvc.Spec.Resources.Requests)
-	return !desired.size.Equal(size)
+	return isPVCStatusMatched(actual.pvc, scName, size)
 }
 
 func getVolumePhase(actual *actualVolume, desired *desiredVolume) VolumePhase {
@@ -401,20 +429,6 @@ func (p *pvcModifier) getActualVolumes(tc *v1alpha1.TidbCluster, mt v1alpha1.Mem
 		return nil, nil, fmt.Errorf("failed to list Pods: %v", err)
 	}
 
-	pvcs, err := p.deps.PVCLister.PersistentVolumeClaims(ns).List(selector)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to list PVCs: %v", err)
-	}
-
-	findPVC := func(pvcName string) (*corev1.PersistentVolumeClaim, error) {
-		for _, pvc := range pvcs {
-			if pvc.Name == pvcName {
-				return pvc, nil
-			}
-		}
-		return nil, fmt.Errorf("failed to find PVC %s", pvcName)
-	}
-
 	sort.Slice(pods, func(i, k int) bool {
 		a, b := pods[i].Name, pods[k].Name
 		if len(a) != len(b) {
@@ -433,43 +447,45 @@ func (p *pvcModifier) getActualVolumes(tc *v1alpha1.TidbCluster, mt v1alpha1.Mem
 		isEvicting := isLeaderEvicting(pod)
 
 		for _, vol := range pod.Spec.Volumes {
-			if vol.PersistentVolumeClaim != nil {
-				pvc, err := findPVC(vol.PersistentVolumeClaim.ClaimName)
-				if err != nil {
-					klog.Warningf("Failed to find PVC %s of Pod %s/%s, maybe some labels are lost",
-						vol.PersistentVolumeClaim.ClaimName, pod.Namespace, pod.Name)
-					continue
-				}
-				pv, err := p.getBoundPVFromPVC(pvc)
-				if err != nil {
-					klog.Warningf("Failed to find PV of PVC %s of Pod %s/%s",
-						vol.PersistentVolumeClaim.ClaimName, pod.Namespace, pod.Name)
-					continue
-				}
-				name := v1alpha1.StorageVolumeName(vol.Name)
-				desired, ok := desiredVolumeMap[name]
-				if !ok {
-					klog.Warningf("Failed to get desired volume %s %s", getComponentKey(tc, mt), name)
-					continue
-				}
-				actual := actualVolume{
-					desired: &desired,
-					name:    name,
-					pvc:     pvc,
-					pv:      pv,
-				}
-
-				phase := getVolumePhase(&actual, &desired)
-				actual.phase = phase
-				switch phase {
-				case VolumePhaseModifying:
-					hasModifyingVolume = true
-				case VolumePhasePreparing:
-					hasPrepareVolume = true
-				}
-
-				vols = append(vols, actual)
+			if vol.PersistentVolumeClaim == nil {
+				continue
 			}
+			pvc, err := p.deps.PVCLister.PersistentVolumeClaims(pod.Namespace).Get(vol.PersistentVolumeClaim.ClaimName)
+			if err != nil {
+				return nil, nil, err
+			}
+			pv, err := p.getBoundPVFromPVC(pvc)
+			if err != nil {
+				klog.Warningf("Failed to find PV of PVC %s of Pod %s/%s",
+					vol.PersistentVolumeClaim.ClaimName, pod.Namespace, pod.Name)
+				// TODO: fix it
+				continue
+			}
+			name := v1alpha1.StorageVolumeName(vol.Name)
+			desired, ok := desiredVolumeMap[name]
+			if !ok {
+				klog.Warningf("Failed to get desired volume %s %s", getComponentKey(tc, mt), name)
+				continue
+			}
+			actual := actualVolume{
+				desired: &desired,
+				name:    name,
+				pvc:     pvc,
+				pv:      pv,
+			}
+
+			phase := getVolumePhase(&actual, &desired)
+			actual.phase = phase
+			switch phase {
+			case VolumePhaseModifying:
+				hasModifyingVolume = true
+			case VolumePhasePreparing:
+				hasPrepareVolume = true
+			case VolumePhasePending:
+			}
+			klog.Infof("volume %s %s is in %s phase", getComponentKey(tc, mt), name, phase)
+
+			vols = append(vols, actual)
 		}
 		// choose volumes of the pod which is evicting leader
 		if isEvicting {
@@ -574,6 +590,7 @@ func (p *pvcModifier) tryToModifyPVC(ctx *componentVolumeContext) error {
 		vol := &ctx.actualVolumes[i]
 		switch vol.phase {
 		case VolumePhasePreparing:
+			klog.Infof("try to modify pvc spec: %s/%s", vol.pvc.Namespace, vol.pvc.Name)
 			if err := p.modifyPVCAnnoSpec(ctx, vol, ctx.shouldEvict); err != nil {
 				errs = append(errs, err)
 				continue
@@ -581,9 +598,10 @@ func (p *pvcModifier) tryToModifyPVC(ctx *componentVolumeContext) error {
 
 			fallthrough
 		case VolumePhaseWaitForLeaderEviction:
+			klog.Infof("wait for leader eviction: %s/%s", vol.pvc.Namespace, vol.pvc.Name)
 			if ctx.shouldEvict {
 				if !isLeaderEvicted {
-					errs = append(errs, fmt.Errorf("waiting for leader eviction"))
+					errs = append(errs, fmt.Errorf("volume %s is waiting for leader eviction of pod: %s/%s", vol.name, ctx.pod.Namespace, ctx.pod.Name))
 					continue
 				}
 				if err := p.modifyPVCAnnoSpecLastTransitionTimestamp(ctx, vol); err != nil {
@@ -594,6 +612,7 @@ func (p *pvcModifier) tryToModifyPVC(ctx *componentVolumeContext) error {
 
 			fallthrough
 		case VolumePhaseModifying:
+			klog.Infof("try to modify volume: %s/%s", vol.pvc.Namespace, vol.pvc.Name)
 			wait, err := p.modifyVolume(ctx, vol)
 			if err != nil {
 				errs = append(errs, err)
@@ -715,7 +734,30 @@ func upgradeRevision(pvc *corev1.PersistentVolumeClaim) {
 	pvc.Annotations[annoKeyPVCSpecRevision] = strconv.Itoa(rev)
 }
 
-func snapshotStorageClassAndSize(pvc *corev1.PersistentVolumeClaim, scName, size string) bool {
+func isPVCStatusMatched(pvc *corev1.PersistentVolumeClaim, scName, size string) bool {
+	isChanged := false
+	oldSc, ok := pvc.Annotations[annoKeyPVCStatusStorageClass]
+	if !ok {
+		oldSc = ignoreNil(pvc.Spec.StorageClassName)
+	}
+	if oldSc != scName {
+		isChanged = true
+	}
+
+	oldSize, ok := pvc.Annotations[annoKeyPVCStatusStorageSize]
+	if !ok {
+		quantity := getStorageSize(pvc.Spec.Resources.Requests)
+		oldSize = quantity.String()
+	}
+	if oldSize != size {
+		isChanged = true
+	}
+	klog.Infof("old sc %s vs new sc %v, old size %v vs new size %v", oldSc, scName, oldSize, size)
+
+	return isChanged
+}
+
+func isPVCSpecMatched(pvc *corev1.PersistentVolumeClaim, scName, size string) bool {
 	isChanged := false
 	oldSc := pvc.Annotations[annoKeyPVCSpecStorageClass]
 	if oldSc != scName {
@@ -730,6 +772,12 @@ func snapshotStorageClassAndSize(pvc *corev1.PersistentVolumeClaim, scName, size
 	if oldSize != size {
 		isChanged = true
 	}
+
+	return isChanged
+}
+
+func snapshotStorageClassAndSize(pvc *corev1.PersistentVolumeClaim, scName, size string) bool {
+	isChanged := isPVCSpecMatched(pvc, scName, size)
 
 	if pvc.Annotations == nil {
 		pvc.Annotations = map[string]string{}
@@ -803,7 +851,7 @@ func (p *pvcModifier) modifyPVCAnnoStatus(ctx *componentVolumeContext, vol *actu
 	pvc.Annotations[annoKeyPVCStatusStorageClass] = pvc.Annotations[annoKeyPVCSpecStorageClass]
 	pvc.Annotations[annoKeyPVCStatusStorageSize] = pvc.Annotations[annoKeyPVCSpecStorageSize]
 
-	updated, err := p.deps.KubeClientset.CoreV1().PersistentVolumeClaims(pvc.Namespace).UpdateStatus(ctx, pvc, metav1.UpdateOptions{})
+	updated, err := p.deps.KubeClientset.CoreV1().PersistentVolumeClaims(pvc.Namespace).Update(ctx, pvc, metav1.UpdateOptions{})
 	if err != nil {
 		return err
 	}

@@ -2,6 +2,7 @@ package aws
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"time"
@@ -9,10 +10,11 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
+	"github.com/aws/smithy-go"
 	corev1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
-	"k8s.io/apimachinery/pkg/api/resource"
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
+	klog "k8s.io/klog/v2"
 	"k8s.io/utils/pointer"
 
 	"github.com/pingcap/tidb-operator/pkg/manager/volumes/delegation"
@@ -79,6 +81,8 @@ func (m *EBSModifier) ModifyVolume(ctx context.Context, pvc *corev1.PersistentVo
 		}
 	}
 
+	klog.Infof("actual: %+v, desired: %+v", actual, desired)
+
 	// retry to modify the volume
 	if _, err := m.c.ModifyVolume(ctx, &ec2.ModifyVolumeInput{
 		VolumeId:   &desired.VolumeId,
@@ -131,11 +135,18 @@ func (m *EBSModifier) getCurrentVolumeStatus(ctx context.Context, id string) (*V
 		VolumeIds: []string{id},
 	})
 	if err != nil {
+		var ae smithy.APIError
+		if errors.As(err, &ae) {
+			klog.Infof("code: %s, message: %s, fault: %s", ae.ErrorCode(), ae.ErrorMessage(), ae.ErrorFault().String())
+			if ae.ErrorCode() == "InvalidVolumeModification.NotFound" {
+				return nil, nil
+			}
+		}
 		return nil, err
 	}
 
 	for _, s := range res.VolumesModifications {
-		if s.VolumeId == nil || *s.VolumeId == id {
+		if s.VolumeId == nil || *s.VolumeId != id {
 			continue
 		}
 		v := Volume{
@@ -180,7 +191,9 @@ func (m *EBSModifier) MinWaitDuration() time.Duration {
 
 func (m *EBSModifier) setArgsFromPVC(v *Volume, pvc *corev1.PersistentVolumeClaim) error {
 	quantity := pvc.Spec.Resources.Requests[corev1.ResourceStorage]
-	size := quantity.ScaledValue(resource.Giga)
+	sizeBytes := quantity.ScaledValue(0)
+	size := sizeBytes / 1024 / 1024 / 1024
+
 	if size < minSize || size > maxSize {
 		return fmt.Errorf("invalid storage size: %v", quantity)
 	}
