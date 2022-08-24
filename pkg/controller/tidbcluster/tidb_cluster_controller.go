@@ -18,11 +18,6 @@ import (
 	"time"
 
 	perrors "github.com/pingcap/errors"
-	"github.com/pingcap/tidb-operator/pkg/apis/pingcap/v1alpha1"
-	"github.com/pingcap/tidb-operator/pkg/controller"
-	mm "github.com/pingcap/tidb-operator/pkg/manager/member"
-	"github.com/pingcap/tidb-operator/pkg/manager/meta"
-	"github.com/pingcap/tidb-operator/pkg/manager/suspender"
 	apps "k8s.io/api/apps/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -31,6 +26,13 @@ import (
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
+
+	"github.com/pingcap/tidb-operator/pkg/apis/pingcap/v1alpha1"
+	"github.com/pingcap/tidb-operator/pkg/controller"
+	mm "github.com/pingcap/tidb-operator/pkg/manager/member"
+	"github.com/pingcap/tidb-operator/pkg/manager/meta"
+	"github.com/pingcap/tidb-operator/pkg/manager/suspender"
+	"github.com/pingcap/tidb-operator/pkg/manager/volumes"
 )
 
 // Controller controls tidbclusters.
@@ -58,7 +60,7 @@ func NewController(deps *controller.Dependencies) *Controller {
 			meta.NewMetaManager(deps),
 			mm.NewOrphanPodsCleaner(deps),
 			mm.NewRealPVCCleaner(deps),
-			mm.NewPVCResizer(deps),
+			volumes.NewPVCModifier(deps),
 			mm.NewPumpMemberManager(deps, mm.NewPumpScaler(deps), suspender),
 			mm.NewTiFlashMemberManager(deps, mm.NewTiFlashFailover(deps), mm.NewTiFlashScaler(deps), mm.NewTiFlashUpgrader(deps), suspender),
 			mm.NewTiCDCMemberManager(deps, mm.NewTiCDCScaler(deps), mm.NewTiCDCUpgrader(deps), suspender),
