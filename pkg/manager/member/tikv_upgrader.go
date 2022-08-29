@@ -23,6 +23,7 @@ import (
 	"github.com/pingcap/tidb-operator/pkg/apis/pingcap/v1alpha1"
 	"github.com/pingcap/tidb-operator/pkg/controller"
 	mngerutils "github.com/pingcap/tidb-operator/pkg/manager/utils"
+	"github.com/pingcap/tidb-operator/pkg/manager/volumes"
 
 	apps "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -47,6 +48,8 @@ type TiKVUpgrader interface {
 
 type tikvUpgrader struct {
 	deps *controller.Dependencies
+
+	volumeModifier volumes.PodVolumeModifier
 }
 
 // NewTiKVUpgrader returns a tikv Upgrader
@@ -178,60 +181,62 @@ func (u *tikvUpgrader) upgradeTiKVPod(tc *v1alpha1.TidbCluster, ordinal int32, n
 	upgradePodName := TikvPodName(tcName, ordinal)
 	upgradePod, err := u.deps.PodLister.Pods(ns).Get(upgradePodName)
 	if err != nil {
-		return fmt.Errorf("upgradeTiKVPod: failed to get pods %s for cluster %s/%s, error: %s", upgradePodName, ns, tcName, err)
+		return fmt.Errorf("upgradeTiKVPod: failed to get pods %s for tc %s/%s, error: %s", upgradePodName, ns, tcName, err)
 	}
 
-	storeID, err := TiKVStoreIDFromStatus(tc, upgradePodName)
+	done, err := u.evictLeaderBeforeUpgrade(tc, upgradePod)
 	if err != nil {
-		if err == ErrNotFoundStoreID {
-			return controller.RequeueErrorf("tidbcluster: [%s/%s] no store status found for tikv pod: [%s]", ns, tcName, upgradePodName)
-		}
-		return err
+		return fmt.Errorf("upgradeTiKVPod: failed to evict pods %s for tc %s/%s, error: %s", upgradePodName, ns, tcName, err)
+	}
+	if !done {
+		return controller.RequeueErrorf("upgradeTiKVPod: pods %s for tc %s/%s is evicting leader", upgradePodName, ns, tcName)
 	}
 
-	_, evicting := upgradePod.Annotations[EvictLeaderBeginTime]
-	if !evicting {
-		return u.beginEvictLeader(tc, storeID, upgradePod)
-	}
-
-	if u.readyToUpgrade(upgradePod, tc) {
-		mngerutils.SetUpgradePartition(newSet, ordinal)
-		return nil
-	}
-
-	return controller.RequeueErrorf("tidbcluster: [%s/%s]'s tikv pod: [%s] is evicting leader", ns, tcName, upgradePodName)
+	mngerutils.SetUpgradePartition(newSet, ordinal)
+	return nil
 }
 
-func (u *tikvUpgrader) readyToUpgrade(upgradePod *corev1.Pod, tc *v1alpha1.TidbCluster) bool {
-	evictLeaderTimeout := tc.TiKVEvictLeaderTimeout()
+func (u *tikvUpgrader) evictLeaderBeforeUpgrade(tc *v1alpha1.TidbCluster, upgradePod *corev1.Pod) (bool, error) {
+	logPrefix := fmt.Sprintf("evict leader before upgrading tikv pod %s/%s", upgradePod.Namespace, upgradePod.Name)
 
+	storeID, err := TiKVStoreIDFromStatus(tc, upgradePod.Name)
+	if err != nil {
+		return false, err
+	}
+
+	// evict leader if needed
+	_, evicting := upgradePod.Annotations[EvictLeaderBeginTime]
+	if !evicting {
+		return false, u.beginEvictLeader(tc, storeID, upgradePod)
+	}
+
+	// wait for leader eviction to complete or timeout
+	evictLeaderTimeout := tc.TiKVEvictLeaderTimeout()
 	if evictLeaderBeginTimeStr, evicting := upgradePod.Annotations[EvictLeaderBeginTime]; evicting {
 		evictLeaderBeginTime, err := time.Parse(time.RFC3339, evictLeaderBeginTimeStr)
 		if err != nil {
-			klog.Errorf("parse annotation:[%s] to time failed.", EvictLeaderBeginTime)
-			return false
+			klog.Errorf("%s: parse annotation %q to time failed", logPrefix, EvictLeaderBeginTime)
+			return false, nil
 		}
 		if time.Now().After(evictLeaderBeginTime.Add(evictLeaderTimeout)) {
-			klog.Infof("Evict region leader timeout (threshold: %v) for Pod %s/%s", evictLeaderTimeout, upgradePod.Namespace, upgradePod.Name)
-			return true
+			klog.Infof("%s: evict leader timeout with threshold %v, so ready to upgrade", logPrefix, evictLeaderTimeout)
+			return true, nil
 		}
 	}
 
-	tlsEnabled := tc.IsTLSClusterEnabled()
-	leaderCount, err := u.deps.TiKVControl.GetTiKVPodClient(tc.Namespace, tc.Name, upgradePod.Name, tlsEnabled).GetLeaderCount()
+	leaderCount, err := u.deps.TiKVControl.GetTiKVPodClient(tc.Namespace, tc.Name, upgradePod.Name, tc.IsTLSClusterEnabled()).GetLeaderCount()
 	if err != nil {
-		klog.Warningf("Fail to get region leader count for Pod %s/%s, error: %v", upgradePod.Namespace, upgradePod.Name, err)
-		return false
+		klog.Warningf("%s: failed to get leader count, error: %v", logPrefix, err)
+		return false, nil
 	}
 
 	if leaderCount == 0 {
-		klog.Infof("Region leader count is 0 for Pod %s/%s", upgradePod.Namespace, upgradePod.Name)
-		return true
+		klog.Infof("%s: leader count is 0, so ready to upgrade", logPrefix)
+		return true, nil
 	}
 
-	klog.Infof("Region leader count is %d for Pod %s/%s", leaderCount, upgradePod.Namespace, upgradePod.Name)
-
-	return false
+	klog.Infof("%s: leader count is %d, and wait for evictition to complete", logPrefix, leaderCount)
+	return false, nil
 }
 
 func (u *tikvUpgrader) beginEvictLeader(tc *v1alpha1.TidbCluster, storeID uint64, pod *corev1.Pod) error {
