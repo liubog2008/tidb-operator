@@ -45,7 +45,7 @@ func NewPodVolumeModifier(deps *controller.Dependencies) PodVolumeModifier {
 	return &podVolModifier{
 		deps: deps,
 		modifiers: map[string]delegation.VolumeModifier{
-			"aws": aws.NewEBSModifier(deps.AWSConfig),
+			"ebs.csi.aws.com": aws.NewEBSModifier(deps.AWSConfig),
 		},
 	}
 }
@@ -81,7 +81,6 @@ func (p *podVolModifier) Modify(tc *v1alpha1.TidbCluster, pod *corev1.Pod, expec
 		case VolumePhaseWaitForLeaderEviction:
 			if shouldEvictLeader {
 				if isEvicted {
-
 					completed = false
 					continue
 				}
@@ -194,7 +193,7 @@ func (p *podVolModifier) NewActualVolumeOfPod(vs []DesiredVolume, ns string, vol
 		PV:      pv,
 	}
 
-	phase := getVolumePhase(&actual)
+	phase := p.getVolumePhase(&actual)
 	actual.Phase = phase
 
 	return &actual, nil
@@ -351,9 +350,10 @@ func (p *podVolModifier) modifyPVCAnnoStatus(ctx context.Context, vol *ActualVol
 }
 
 func (p *podVolModifier) modifyVolume(ctx context.Context, vol *ActualVolume) (bool, error) {
-	m, err := p.getVolumeModifier(vol)
-	if err != nil {
-		return false, err
+	m := p.getVolumeModifier(vol.Desired.StorageClass)
+	if m == nil {
+		// skip modifying volume by delegation.VolumeModifier
+		return false, nil
 	}
 
 	q, err := resource.ParseQuantity(vol.Desired.Size)
@@ -366,9 +366,8 @@ func (p *podVolModifier) modifyVolume(ctx context.Context, vol *ActualVolume) (b
 	return m.ModifyVolume(ctx, pvc, vol.PV, vol.Desired.StorageClass)
 }
 
-func (p *podVolModifier) getVolumeModifier(vol *ActualVolume) (delegation.VolumeModifier, error) {
-	// TODO(liubo02)
-	return p.modifiers["aws"], nil
+func (p *podVolModifier) getVolumeModifier(sc *storagev1.StorageClass) delegation.VolumeModifier {
+	return p.modifiers[sc.Provisioner]
 }
 
 func isLeaderEvictedOrTimeout(tc *v1alpha1.TidbCluster, pod *corev1.Pod) bool {
