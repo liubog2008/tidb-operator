@@ -395,7 +395,8 @@ func TestTiKVUpgraderUpgrade(t *testing.T) {
 			endEvictLeaderErr:   false,
 			updatePodErr:        false,
 			errExpectFn: func(g *GomegaWithT, err error) {
-				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(err).To(HaveOccurred())
+				g.Expect(err.Error()).To(ContainSubstring("pods upgrader-tikv-1 for tc default/upgrader is evicting leader"))
 			},
 			expectFn: func(g *GomegaWithT, tc *v1alpha1.TidbCluster, newSet *apps.StatefulSet, pods map[string]*corev1.Pod) {
 				g.Expect(*newSet.Spec.UpdateStrategy.RollingUpdate.Partition).To(Equal(int32(2)))
@@ -432,7 +433,7 @@ func TestTiKVUpgraderUpgrade(t *testing.T) {
 			leaderCount:         10,
 			errExpectFn: func(g *GomegaWithT, err error) {
 				g.Expect(err).To(HaveOccurred())
-				g.Expect(err.Error()).To(Equal("tidbcluster: [default/upgrader]'s tikv pod: [upgrader-tikv-1] is evicting leader"))
+				g.Expect(err.Error()).To(ContainSubstring("pods upgrader-tikv-1 for tc default/upgrader is evicting leader"))
 			},
 			expectFn: func(g *GomegaWithT, tc *v1alpha1.TidbCluster, newSet *apps.StatefulSet, pods map[string]*corev1.Pod) {
 				g.Expect(*newSet.Spec.UpdateStrategy.RollingUpdate.Partition).To(Equal(int32(2)))
@@ -468,7 +469,7 @@ func TestTiKVUpgraderUpgrade(t *testing.T) {
 			leaderCount:         10,
 			errExpectFn: func(g *GomegaWithT, err error) {
 				g.Expect(err).To(HaveOccurred())
-				g.Expect(err.Error()).To(Equal("tidbcluster: [default/upgrader]'s tikv pod: [upgrader-tikv-1] is evicting leader"))
+				g.Expect(err.Error()).To(ContainSubstring("pods upgrader-tikv-1 for tc default/upgrader is evicting leader"))
 			},
 			expectFn: func(g *GomegaWithT, tc *v1alpha1.TidbCluster, newSet *apps.StatefulSet, pods map[string]*corev1.Pod) {
 				g.Expect(*newSet.Spec.UpdateStrategy.RollingUpdate.Partition).To(Equal(int32(2)))
