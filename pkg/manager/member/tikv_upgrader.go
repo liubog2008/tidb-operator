@@ -181,15 +181,23 @@ func (u *tikvUpgrader) upgradeTiKVPod(tc *v1alpha1.TidbCluster, ordinal int32, n
 	upgradePodName := TikvPodName(tcName, ordinal)
 	upgradePod, err := u.deps.PodLister.Pods(ns).Get(upgradePodName)
 	if err != nil {
-		return fmt.Errorf("upgradeTiKVPod: failed to get pods %s for tc %s/%s, error: %s", upgradePodName, ns, tcName, err)
+		return fmt.Errorf("upgradeTiKVPod: failed to get pod %s for tc %s/%s, error: %s", upgradePodName, ns, tcName, err)
 	}
 
 	done, err := u.evictLeaderBeforeUpgrade(tc, upgradePod)
 	if err != nil {
-		return fmt.Errorf("upgradeTiKVPod: failed to evict pods %s for tc %s/%s, error: %s", upgradePodName, ns, tcName, err)
+		return fmt.Errorf("upgradeTiKVPod: failed to evict leader of pod %s for tc %s/%s, error: %s", upgradePodName, ns, tcName, err)
 	}
 	if !done {
-		return controller.RequeueErrorf("upgradeTiKVPod: pods %s for tc %s/%s is evicting leader", upgradePodName, ns, tcName)
+		return controller.RequeueErrorf("upgradeTiKVPod: evicting leader of pod %s for tc %s/%s", upgradePodName, ns, tcName)
+	}
+
+	done, err = u.modifyVolumesBeforeUpgrade(tc, upgradePod)
+	if err != nil {
+		return fmt.Errorf("upgradeTiKVPod: failed to modify volumes of pod %s for tc %s/%s, error: %s", upgradePodName, ns, tcName, err)
+	}
+	if !done {
+		return controller.RequeueErrorf("upgradeTiKVPod: modifying volumes of pod %s for tc %s/%s", upgradePodName, ns, tcName)
 	}
 
 	mngerutils.SetUpgradePartition(newSet, ordinal)
@@ -237,6 +245,15 @@ func (u *tikvUpgrader) evictLeaderBeforeUpgrade(tc *v1alpha1.TidbCluster, upgrad
 
 	klog.Infof("%s: leader count is %d, and wait for evictition to complete", logPrefix, leaderCount)
 	return false, nil
+}
+
+func (u *tikvUpgrader) modifyVolumesBeforeUpgrade(tc *v1alpha1.TidbCluster, upgradePod *corev1.Pod) (bool, error) {
+	desiredVolumes, err := volumes.GetDesiredVolumesForTCComponent(tc, v1alpha1.TiKVMemberType, u.deps.StorageClassLister)
+	if err != nil {
+		return false, err
+	}
+
+	return u.volumeModifier.Modify(tc, upgradePod, desiredVolumes, true)
 }
 
 func (u *tikvUpgrader) beginEvictLeader(tc *v1alpha1.TidbCluster, storeID uint64, pod *corev1.Pod) error {
