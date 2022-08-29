@@ -115,106 +115,6 @@ func (p *pvcModifier) getStorageClass(name *string) (*storagev1.StorageClass, er
 	return p.deps.StorageClassLister.Get(*name)
 }
 
-// TODO: it should be refactored
-func (p *pvcModifier) getDesiredVolumes(tc *v1alpha1.TidbCluster, mt v1alpha1.MemberType) ([]DesiredVolume, error) {
-	desiredVolumes := []DesiredVolume{}
-
-	storageVolumes := []v1alpha1.StorageVolume{}
-	switch mt {
-	case v1alpha1.PDMemberType:
-		sc, err := p.getStorageClass(tc.Spec.PD.StorageClassName)
-		if err != nil {
-			return nil, err
-		}
-		name := v1alpha1.GetStorageVolumeName("", mt)
-		size := getStorageSize(tc.Spec.PD.Requests)
-		d := DesiredVolume{
-			Name:         string(name),
-			Size:         size.String(),
-			StorageClass: sc,
-		}
-		desiredVolumes = append(desiredVolumes, d)
-
-		storageVolumes = tc.Spec.PD.StorageVolumes
-
-	case v1alpha1.TiDBMemberType:
-		storageVolumes = tc.Spec.TiDB.StorageVolumes
-
-	case v1alpha1.TiKVMemberType:
-		sc, err := p.getStorageClass(tc.Spec.TiKV.StorageClassName)
-		if err != nil {
-			return nil, err
-		}
-		name := v1alpha1.GetStorageVolumeName("", mt)
-		size := getStorageSize(tc.Spec.TiKV.Requests)
-		d := DesiredVolume{
-			Name:         string(name),
-			Size:         size.String(),
-			StorageClass: sc,
-		}
-		desiredVolumes = append(desiredVolumes, d)
-
-		storageVolumes = tc.Spec.TiKV.StorageVolumes
-
-	case v1alpha1.TiFlashMemberType:
-		for i, claim := range tc.Spec.TiFlash.StorageClaims {
-			sc, err := p.getStorageClass(claim.StorageClassName)
-			if err != nil {
-				return nil, err
-			}
-			name := v1alpha1.GetStorageVolumeNameForTiFlash(i)
-			size := getStorageSize(claim.Resources.Requests)
-			d := DesiredVolume{
-				Name:         string(name),
-				Size:         size.String(),
-				StorageClass: sc,
-			}
-			desiredVolumes = append(desiredVolumes, d)
-		}
-
-	case v1alpha1.TiCDCMemberType:
-		storageVolumes = tc.Spec.TiCDC.StorageVolumes
-
-	case v1alpha1.PumpMemberType:
-		sc, err := p.getStorageClass(tc.Spec.Pump.StorageClassName)
-		if err != nil {
-			return nil, err
-		}
-		name := v1alpha1.GetStorageVolumeName("", mt)
-		size := getStorageSize(tc.Spec.Pump.Requests)
-		d := DesiredVolume{
-			Name:         string(name),
-			Size:         size.String(),
-			StorageClass: sc,
-		}
-		desiredVolumes = append(desiredVolumes, d)
-	default:
-		return nil, fmt.Errorf("unsupported member type %s", mt)
-	}
-
-	for _, sv := range storageVolumes {
-		if quantity, err := resource.ParseQuantity(sv.StorageSize); err == nil {
-			sc, err := p.getStorageClass(sv.StorageClassName)
-			if err != nil {
-				return nil, err
-			}
-			name := v1alpha1.GetStorageVolumeName(sv.Name, mt)
-			d := DesiredVolume{
-				Name:         string(name),
-				Size:         quantity.String(),
-				StorageClass: sc,
-			}
-
-			desiredVolumes = append(desiredVolumes, d)
-
-		} else {
-			klog.Warningf("StorageVolume %q in %s .spec.%s is invalid", sv.Name, getTcKey(tc), mt)
-		}
-	}
-
-	return desiredVolumes, nil
-}
-
 func (p *pvcModifier) buildContextForTC(tc *v1alpha1.TidbCluster, status v1alpha1.ComponentStatus) (*componentVolumeContext, error) {
 	comp := status.MemberType()
 
@@ -224,7 +124,7 @@ func (p *pvcModifier) buildContextForTC(tc *v1alpha1.TidbCluster, status v1alpha
 		status:  status,
 	}
 
-	vs, err := p.getDesiredVolumes(tc, comp)
+	vs, err := GetDesiredVolumesForTCComponent(tc, comp, p.deps.StorageClassLister)
 	if err != nil {
 		return nil, err
 	}
