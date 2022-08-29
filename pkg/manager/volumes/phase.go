@@ -4,6 +4,7 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	storagev1 "k8s.io/api/storage/v1"
 	klog "k8s.io/klog/v2"
 )
 
@@ -50,9 +51,9 @@ func (p VolumePhase) String() string {
 	return "Unknown"
 }
 
-func getVolumePhase(vol *ActualVolume) VolumePhase {
+func (p *podVolModifier) getVolumePhase(vol *ActualVolume) VolumePhase {
 	if isPVCRevisionChanged(vol.PVC) {
-		if !waitForNextTime(vol.PVC) {
+		if !p.waitForNextTime(vol.PVC, vol.Desired.StorageClass) {
 			return VolumePhaseWaitForLeaderEviction
 		}
 		return VolumePhaseModifying
@@ -62,7 +63,7 @@ func getVolumePhase(vol *ActualVolume) VolumePhase {
 		return VolumePhaseModified
 	}
 
-	if waitForNextTime(vol.PVC) {
+	if p.waitForNextTime(vol.PVC, vol.Desired.StorageClass) {
 		return VolumePhasePending
 	}
 
@@ -71,12 +72,12 @@ func getVolumePhase(vol *ActualVolume) VolumePhase {
 
 func isPVCRevisionChanged(pvc *corev1.PersistentVolumeClaim) bool {
 	specRevision := pvc.Annotations[annoKeyPVCSpecRevision]
-	statusRevision := pvc.Annotations[annoKeyPVCSpecRevision]
+	statusRevision := pvc.Annotations[annoKeyPVCStatusRevision]
 
 	return specRevision != statusRevision
 }
 
-func waitForNextTime(pvc *corev1.PersistentVolumeClaim) bool {
+func (p *podVolModifier) waitForNextTime(pvc *corev1.PersistentVolumeClaim, sc *storagev1.StorageClass) bool {
 	str, ok := pvc.Annotations[annoKeyPVCLastTransitionTimestamp]
 	if !ok {
 		return false
@@ -87,7 +88,13 @@ func waitForNextTime(pvc *corev1.PersistentVolumeClaim) bool {
 	}
 	d := time.Since(timestamp)
 
-	return d < defaultModifyWaitingDuration
+	m := p.getVolumeModifier(sc)
+
+	if m == nil {
+		return d < defaultModifyWaitingDuration
+	}
+
+	return d < m.MinWaitDuration()
 }
 
 func needModify(pvc *corev1.PersistentVolumeClaim, desired *DesiredVolume) bool {
