@@ -4,23 +4,17 @@ import (
 	"context"
 	"fmt"
 	"sort"
-	"strconv"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/apimachinery/pkg/selection"
 	errutil "k8s.io/apimachinery/pkg/util/errors"
 	klog "k8s.io/klog/v2"
 
-	"github.com/pingcap/tidb-operator/pkg/apis/label"
 	"github.com/pingcap/tidb-operator/pkg/apis/pingcap/v1alpha1"
 	"github.com/pingcap/tidb-operator/pkg/controller"
-	"github.com/pingcap/tidb-operator/pkg/manager/volumes/delegation"
-	"github.com/pingcap/tidb-operator/pkg/manager/volumes/delegation/aws"
 )
 
 const (
@@ -37,142 +31,22 @@ const (
 	defaultModifyWaitingDuration = time.Minute * 1
 )
 
-type VolumePhase int
-
-const (
-	// 1. isPVCRevisionChanged: false
-	// 2. needModify: true
-	// 3. waitForNextTime: true
-	VolumePhasePending VolumePhase = iota
-	// 1. isPVCRevisionChanged: false
-	// 2. needModify: true
-	// 3. waitForNextTime: false
-	VolumePhasePreparing
-	// 1. isPVCRevisionChanged: true
-	// 2. needModify: true/false
-	// 3. waitForNextTime: false
-	VolumePhaseWaitForLeaderEviction
-	// 1. isPVCRevisionChanged: true
-	// 2. needModify: true/false
-	// 3. waitForNextTime: true
-	VolumePhaseModifying
-	// 1. isPVCRevisionChanged: false
-	// 2. needModify: false
-	// 3. waitForNextTime: true/false
-	VolumePhaseModified
-)
-
-func (p VolumePhase) String() string {
-	switch p {
-	case VolumePhasePending:
-		return "Pending"
-	case VolumePhasePreparing:
-		return "Preparing"
-	case VolumePhaseWaitForLeaderEviction:
-		return "WaitForLeaderEviction"
-	case VolumePhaseModifying:
-		return "Modifying"
-	case VolumePhaseModified:
-		return "Modified"
-	}
-
-	return "Unknown"
-}
-
 type PVCModifierInterface interface {
 	Sync(tc *v1alpha1.TidbCluster) error
-}
-
-type selectorFactory struct {
-	cache map[v1alpha1.MemberType]*labels.Requirement
-}
-
-func (sf *selectorFactory) NewSelector(instance string, mt v1alpha1.MemberType) (labels.Selector, error) {
-	selector, err := label.New().Instance(instance).Selector()
-	if err != nil {
-		return nil, err
-	}
-	r, ok := sf.cache[mt]
-	if !ok {
-		return nil, fmt.Errorf("can't get selector for %v", mt)
-	}
-
-	return selector.Add(*r), nil
-}
-
-// pd => pd
-// tidb => tidb
-// tikv => tikv
-// tiflash => tiflash
-// ticdc => ticdc
-// pump => pump
-func convertMemberTypeToLabelVal(mt v1alpha1.MemberType) string {
-	return string(mt)
-}
-
-func NewSelectorFactory() (*selectorFactory, error) {
-	mts := []v1alpha1.MemberType{
-		v1alpha1.PDMemberType,
-		v1alpha1.TiDBMemberType,
-		v1alpha1.TiKVMemberType,
-		v1alpha1.TiFlashMemberType,
-		v1alpha1.TiCDCMemberType,
-		v1alpha1.PumpMemberType,
-	}
-
-	sf := &selectorFactory{
-		cache: make(map[v1alpha1.MemberType]*labels.Requirement),
-	}
-
-	for _, mt := range mts {
-		req, err := labels.NewRequirement(label.ComponentLabelKey, selection.Equals, []string{
-			convertMemberTypeToLabelVal(mt),
-		})
-		if err != nil {
-			return nil, err
-		}
-		sf.cache[mt] = req
-	}
-	return sf, nil
-}
-
-func MustNewSelectorFactory() *selectorFactory {
-	sf, err := NewSelectorFactory()
-	if err != nil {
-		panic(err)
-	}
-
-	return sf
 }
 
 type pvcModifier struct {
 	deps *controller.Dependencies
 	sf   *selectorFactory
-
-	modifiers map[string]delegation.VolumeModifier
+	pm   PodVolumeModifier
 }
 
 func NewPVCModifier(deps *controller.Dependencies) PVCModifierInterface {
 	return &pvcModifier{
 		deps: deps,
 		sf:   MustNewSelectorFactory(),
-		modifiers: map[string]delegation.VolumeModifier{
-			"aws": aws.NewEBSModifier(deps.AWSConfig),
-		},
+		pm:   NewPodVolumeModifier(deps),
 	}
-}
-
-type actualVolume struct {
-	name    v1alpha1.StorageVolumeName
-	desired *desiredVolume
-	pvc     *corev1.PersistentVolumeClaim
-	pv      *corev1.PersistentVolume
-	phase   VolumePhase
-}
-
-type desiredVolume struct {
-	size resource.Quantity
-	sc   *storagev1.StorageClass
 }
 
 type componentVolumeContext struct {
@@ -181,10 +55,10 @@ type componentVolumeContext struct {
 	status v1alpha1.ComponentStatus
 
 	shouldEvict bool
-	pod         *corev1.Pod
 
-	desiredVolumes map[v1alpha1.StorageVolumeName]desiredVolume
-	actualVolumes  []actualVolume
+	pods []*corev1.Pod
+
+	desiredVolumes []DesiredVolume
 }
 
 func (c *componentVolumeContext) ComponentID() string {
@@ -201,11 +75,6 @@ func (p *pvcModifier) Sync(tc *v1alpha1.TidbCluster) error {
 			errs = append(errs, fmt.Errorf("build ctx used by modifier for %s failed: %w", ctx.ComponentID(), err))
 			continue
 		}
-		if ctx.pod == nil || len(ctx.actualVolumes) == 0 {
-			klog.Infof("no volumes for %v now", ctx.ComponentID())
-			continue
-		}
-		klog.Infof("context of volumes: %v", ctx)
 
 		// TODO
 		// p.updateVolumeStatus(ctx)
@@ -247,8 +116,8 @@ func (p *pvcModifier) getStorageClass(name *string) (*storagev1.StorageClass, er
 }
 
 // TODO: it should be refactored
-func (p *pvcModifier) getDesiredVolumes(tc *v1alpha1.TidbCluster, mt v1alpha1.MemberType) (map[v1alpha1.StorageVolumeName]desiredVolume, error) {
-	desiredVolumeMap := map[v1alpha1.StorageVolumeName]desiredVolume{}
+func (p *pvcModifier) getDesiredVolumes(tc *v1alpha1.TidbCluster, mt v1alpha1.MemberType) ([]DesiredVolume, error) {
+	desiredVolumes := []DesiredVolume{}
 
 	storageVolumes := []v1alpha1.StorageVolume{}
 	switch mt {
@@ -257,12 +126,14 @@ func (p *pvcModifier) getDesiredVolumes(tc *v1alpha1.TidbCluster, mt v1alpha1.Me
 		if err != nil {
 			return nil, err
 		}
-		d := desiredVolume{
-			size: getStorageSize(tc.Spec.PD.Requests),
-			sc:   sc,
-		}
 		name := v1alpha1.GetStorageVolumeName("", mt)
-		desiredVolumeMap[name] = d
+		size := getStorageSize(tc.Spec.PD.Requests)
+		d := DesiredVolume{
+			Name:         string(name),
+			Size:         size.String(),
+			StorageClass: sc,
+		}
+		desiredVolumes = append(desiredVolumes, d)
 
 		storageVolumes = tc.Spec.PD.StorageVolumes
 
@@ -274,12 +145,14 @@ func (p *pvcModifier) getDesiredVolumes(tc *v1alpha1.TidbCluster, mt v1alpha1.Me
 		if err != nil {
 			return nil, err
 		}
-		d := desiredVolume{
-			size: getStorageSize(tc.Spec.TiKV.Requests),
-			sc:   sc,
-		}
 		name := v1alpha1.GetStorageVolumeName("", mt)
-		desiredVolumeMap[name] = d
+		size := getStorageSize(tc.Spec.TiKV.Requests)
+		d := DesiredVolume{
+			Name:         string(name),
+			Size:         size.String(),
+			StorageClass: sc,
+		}
+		desiredVolumes = append(desiredVolumes, d)
 
 		storageVolumes = tc.Spec.TiKV.StorageVolumes
 
@@ -289,12 +162,14 @@ func (p *pvcModifier) getDesiredVolumes(tc *v1alpha1.TidbCluster, mt v1alpha1.Me
 			if err != nil {
 				return nil, err
 			}
-			d := desiredVolume{
-				size: getStorageSize(claim.Resources.Requests),
-				sc:   sc,
-			}
 			name := v1alpha1.GetStorageVolumeNameForTiFlash(i)
-			desiredVolumeMap[name] = d
+			size := getStorageSize(claim.Resources.Requests)
+			d := DesiredVolume{
+				Name:         string(name),
+				Size:         size.String(),
+				StorageClass: sc,
+			}
+			desiredVolumes = append(desiredVolumes, d)
 		}
 
 	case v1alpha1.TiCDCMemberType:
@@ -305,12 +180,14 @@ func (p *pvcModifier) getDesiredVolumes(tc *v1alpha1.TidbCluster, mt v1alpha1.Me
 		if err != nil {
 			return nil, err
 		}
-		d := desiredVolume{
-			size: getStorageSize(tc.Spec.Pump.Requests),
-			sc:   sc,
-		}
 		name := v1alpha1.GetStorageVolumeName("", mt)
-		desiredVolumeMap[name] = d
+		size := getStorageSize(tc.Spec.Pump.Requests)
+		d := DesiredVolume{
+			Name:         string(name),
+			Size:         size.String(),
+			StorageClass: sc,
+		}
+		desiredVolumes = append(desiredVolumes, d)
 	default:
 		return nil, fmt.Errorf("unsupported member type %s", mt)
 	}
@@ -321,21 +198,21 @@ func (p *pvcModifier) getDesiredVolumes(tc *v1alpha1.TidbCluster, mt v1alpha1.Me
 			if err != nil {
 				return nil, err
 			}
-			d := desiredVolume{
-				size: quantity,
-				sc:   sc,
+			name := v1alpha1.GetStorageVolumeName(sv.Name, mt)
+			d := DesiredVolume{
+				Name:         string(name),
+				Size:         quantity.String(),
+				StorageClass: sc,
 			}
 
-			name := v1alpha1.GetStorageVolumeName(sv.Name, mt)
-
-			desiredVolumeMap[name] = d
+			desiredVolumes = append(desiredVolumes, d)
 
 		} else {
 			klog.Warningf("StorageVolume %q in %s .spec.%s is invalid", sv.Name, getTcKey(tc), mt)
 		}
 	}
 
-	return desiredVolumeMap, nil
+	return desiredVolumes, nil
 }
 
 func (p *pvcModifier) buildContextForTC(tc *v1alpha1.TidbCluster, status v1alpha1.ComponentStatus) (*componentVolumeContext, error) {
@@ -353,80 +230,28 @@ func (p *pvcModifier) buildContextForTC(tc *v1alpha1.TidbCluster, status v1alpha
 	}
 	ctx.desiredVolumes = vs
 
-	klog.Infof("desired volumes: %v", vs)
-
-	selectedPod, actualVolumes, err := p.getActualVolumes(tc, comp, vs)
+	pods, err := p.getPodsOfComponent(tc, comp)
 	if err != nil {
 		return nil, err
 	}
-	ctx.actualVolumes = actualVolumes
-	ctx.pod = selectedPod
+
+	ctx.pods = pods
 	ctx.shouldEvict = comp == v1alpha1.TiKVMemberType
 
 	return ctx, nil
 }
 
-func isPVCRevisionChanged(pvc *corev1.PersistentVolumeClaim) bool {
-	specRevision := pvc.Annotations[annoKeyPVCSpecRevision]
-	statusRevision := pvc.Annotations[annoKeyPVCSpecRevision]
-
-	return specRevision != statusRevision
-}
-
-func waitForNextTime(pvc *corev1.PersistentVolumeClaim) bool {
-	str, ok := pvc.Annotations[annoKeyPVCLastTransitionTimestamp]
-	if !ok {
-		return false
-	}
-	timestamp, err := time.Parse(time.RFC3339, str)
-	if err != nil {
-		return false
-	}
-	d := time.Since(timestamp)
-
-	return d < defaultModifyWaitingDuration
-}
-
-func needModify(actual *actualVolume, desired *desiredVolume) bool {
-	size := desired.size.String()
-	scName := ""
-	if desired.sc != nil {
-		scName = desired.sc.Name
-	}
-
-	return isPVCStatusMatched(actual.pvc, scName, size)
-}
-
-func getVolumePhase(actual *actualVolume, desired *desiredVolume) VolumePhase {
-	if isPVCRevisionChanged(actual.pvc) {
-		if !waitForNextTime(actual.pvc) {
-			return VolumePhaseWaitForLeaderEviction
-		}
-		return VolumePhaseModifying
-	}
-
-	if !needModify(actual, desired) {
-		return VolumePhaseModified
-	}
-
-	if waitForNextTime(actual.pvc) {
-		return VolumePhasePending
-	}
-
-	return VolumePhasePreparing
-}
-
-func (p *pvcModifier) getActualVolumes(tc *v1alpha1.TidbCluster, mt v1alpha1.MemberType, desiredVolumeMap map[v1alpha1.StorageVolumeName]desiredVolume) (*corev1.Pod, []actualVolume, error) {
+func (p *pvcModifier) getPodsOfComponent(tc *v1alpha1.TidbCluster, mt v1alpha1.MemberType) ([]*corev1.Pod, error) {
 	selector, err := p.sf.NewSelector(tc.GetInstanceName(), mt)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	ns := tc.GetNamespace()
 
 	pods, err := p.deps.PodLister.Pods(ns).List(selector)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to list Pods: %v", err)
+		return nil, fmt.Errorf("failed to list Pods: %w", err)
 	}
 
 	sort.Slice(pods, func(i, k int) bool {
@@ -437,71 +262,7 @@ func (p *pvcModifier) getActualVolumes(tc *v1alpha1.TidbCluster, mt v1alpha1.Mem
 		return a < b
 	})
 
-	var ret []actualVolume
-	var selectedPod *corev1.Pod
-
-	for _, pod := range pods {
-		vols := []actualVolume{}
-		hasModifyingVolume := false
-		hasPrepareVolume := false
-		isEvicting := isLeaderEvicting(pod)
-
-		for _, vol := range pod.Spec.Volumes {
-			if vol.PersistentVolumeClaim == nil {
-				continue
-			}
-			pvc, err := p.deps.PVCLister.PersistentVolumeClaims(pod.Namespace).Get(vol.PersistentVolumeClaim.ClaimName)
-			if err != nil {
-				return nil, nil, err
-			}
-			pv, err := p.getBoundPVFromPVC(pvc)
-			if err != nil {
-				klog.Warningf("Failed to find PV of PVC %s of Pod %s/%s",
-					vol.PersistentVolumeClaim.ClaimName, pod.Namespace, pod.Name)
-				// TODO: fix it
-				continue
-			}
-			name := v1alpha1.StorageVolumeName(vol.Name)
-			desired, ok := desiredVolumeMap[name]
-			if !ok {
-				klog.Warningf("Failed to get desired volume %s %s", getComponentKey(tc, mt), name)
-				continue
-			}
-			actual := actualVolume{
-				desired: &desired,
-				name:    name,
-				pvc:     pvc,
-				pv:      pv,
-			}
-
-			phase := getVolumePhase(&actual, &desired)
-			actual.phase = phase
-			switch phase {
-			case VolumePhaseModifying:
-				hasModifyingVolume = true
-			case VolumePhasePreparing:
-				hasPrepareVolume = true
-			case VolumePhasePending:
-			}
-			klog.Infof("volume %s %s is in %s phase", getComponentKey(tc, mt), name, phase)
-
-			vols = append(vols, actual)
-		}
-		// choose volumes of the pod which is evicting leader
-		if isEvicting {
-			return pod, vols, nil
-		}
-		// choose volumes of the pod who has a volume in modifying status
-		if hasModifyingVolume {
-			return pod, vols, nil
-		}
-		if hasPrepareVolume {
-			selectedPod = pod
-			ret = vols
-		}
-	}
-
-	return selectedPod, ret, nil
+	return pods, nil
 }
 
 func (p *pvcModifier) modifyVolumes(ctx *componentVolumeContext) error {
@@ -524,18 +285,18 @@ func (p *pvcModifier) isStatefulSetSynced(ctx *componentVolumeContext, ns, name 
 	}
 
 	for _, volTemplate := range sts.Spec.VolumeClaimTemplates {
-		volName := v1alpha1.StorageVolumeName(volTemplate.Name)
+		volName := volTemplate.Name
 		size := getStorageSize(volTemplate.Spec.Resources.Requests)
-		desired, exist := ctx.desiredVolumes[volName]
-		if !exist {
+		desired := getDesiredVolumeByName(ctx.desiredVolumes, volName)
+		if desired == nil {
 			klog.Warningf("volume %s in sts for cluster %s dose not exist in desired volumes", volName, ctx.ComponentID())
 			continue
 		}
-		if !desired.size.Equal(size) {
+		if desired.Size != size.String() {
 			return false, nil
 		}
 		scName := volTemplate.Spec.StorageClassName
-		if !isStorageClassMatched(desired.sc, ignoreNil(scName)) {
+		if !isStorageClassMatched(desired.StorageClass, ignoreNil(scName)) {
 			return false, nil
 		}
 	}
@@ -578,75 +339,28 @@ func (p *pvcModifier) tryToRecreateSTS(ctx *componentVolumeContext) error {
 }
 
 func (p *pvcModifier) tryToModifyPVC(ctx *componentVolumeContext) error {
-	errs := []error{}
-	isLeaderEvicted := true
-	syncedCount := 0
-	if ctx.shouldEvict {
-		if !isLeaderEvictedOrTimeout(ctx.tc, ctx.pod) {
-			isLeaderEvicted = false
+	for _, pod := range ctx.pods {
+		completed, err := p.pm.Modify(ctx.tc, pod, ctx.desiredVolumes, ctx.shouldEvict)
+		if err != nil {
+			return err
 		}
-	}
-	for i := range ctx.actualVolumes {
-		vol := &ctx.actualVolumes[i]
-		switch vol.phase {
-		case VolumePhasePreparing:
-			klog.Infof("try to modify pvc spec: %s/%s", vol.pvc.Namespace, vol.pvc.Name)
-			if err := p.modifyPVCAnnoSpec(ctx, vol, ctx.shouldEvict); err != nil {
-				errs = append(errs, err)
-				continue
-			}
 
-			fallthrough
-		case VolumePhaseWaitForLeaderEviction:
-			klog.Infof("wait for leader eviction: %s/%s", vol.pvc.Namespace, vol.pvc.Name)
+		if !completed {
 			if ctx.shouldEvict {
-				if !isLeaderEvicted {
-					errs = append(errs, fmt.Errorf("volume %s is waiting for leader eviction of pod: %s/%s", vol.name, ctx.pod.Namespace, ctx.pod.Name))
-					continue
-				}
-				if err := p.modifyPVCAnnoSpecLastTransitionTimestamp(ctx, vol); err != nil {
-					errs = append(errs, err)
-					continue
+				if err := p.evictLeader(pod); err != nil {
+					return err
 				}
 			}
 
-			fallthrough
-		case VolumePhaseModifying:
-			klog.Infof("try to modify volume: %s/%s", vol.pvc.Namespace, vol.pvc.Name)
-			wait, err := p.modifyVolume(ctx, vol)
-			if err != nil {
-				errs = append(errs, err)
-				continue
-			}
-			if !wait {
-				if err := p.modifyPVCAnnoStatus(ctx, vol); err != nil {
-					errs = append(errs, err)
-					continue
-				}
-			}
-		case VolumePhasePending, VolumePhaseModified:
+			return fmt.Errorf("wait for volume modification of %s/%s completed", pod.Namespace, pod.Name)
 		}
 
-		syncedCount++
-	}
-
-	if !ctx.shouldEvict {
-		return errutil.NewAggregate(errs)
-	}
-
-	if syncedCount == len(ctx.actualVolumes) {
-		if err := p.endEvictLeader(ctx); err != nil {
-			errs = append(errs, err)
+		if err := p.endEvictLeader(pod); err != nil {
+			return err
 		}
-
-		return errutil.NewAggregate(errs)
 	}
 
-	if err := p.evictLeader(ctx); err != nil {
-		errs = append(errs, err)
-	}
-
-	return errutil.NewAggregate(errs)
+	return nil
 }
 
 func isLeaderEvicting(pod *corev1.Pod) bool {
@@ -654,229 +368,34 @@ func isLeaderEvicting(pod *corev1.Pod) bool {
 	return exist
 }
 
-func isLeaderEvictedOrTimeout(tc *v1alpha1.TidbCluster, pod *corev1.Pod) bool {
-	for _, store := range tc.Status.TiKV.Stores {
-		if store.PodName == pod.Name {
-			if store.LeaderCount == 0 {
-				klog.V(4).Infof("leader count of store %s become 0", store.ID)
-				return true
-			}
-
-			if status, exist := tc.Status.TiKV.EvictLeader[pod.Name]; exist && !status.BeginTime.IsZero() {
-				timeout := tc.TiKVEvictLeaderTimeout()
-				if time.Since(status.BeginTime.Time) > timeout {
-					klog.Infof("leader eviction begins at %q but timeout (threshold: %v)", status.BeginTime.Format(time.RFC3339), timeout)
-					return true
-				}
-			}
-
-			return false
-		}
-	}
-
-	return true
-}
-
-func (p *pvcModifier) evictLeader(ctx *componentVolumeContext) error {
-	if isLeaderEvicting(ctx.pod) {
+func (p *pvcModifier) evictLeader(pod *corev1.Pod) error {
+	if isLeaderEvicting(pod) {
 		return nil
 	}
-	pod := ctx.pod.DeepCopy()
+	pod = pod.DeepCopy()
 
 	if pod.Annotations == nil {
 		pod.Annotations = map[string]string{}
 	}
 
 	pod.Annotations[v1alpha1.EvictLeaderAnnKeyForResize] = v1alpha1.EvictLeaderValueNone
-	newPod, err := p.deps.KubeClientset.CoreV1().Pods(pod.Namespace).Update(context.TODO(), pod, metav1.UpdateOptions{})
-	if err != nil {
+	if _, err := p.deps.KubeClientset.CoreV1().Pods(pod.Namespace).Update(context.TODO(), pod, metav1.UpdateOptions{}); err != nil {
 		return fmt.Errorf("add leader eviction annotation to pod %s/%s failed: %s", pod.Namespace, pod.Name, err)
 	}
-
-	ctx.pod = newPod
 
 	return nil
 }
 
-func (p *pvcModifier) endEvictLeader(ctx *componentVolumeContext) error {
-	if !isLeaderEvicting(ctx.pod) {
+func (p *pvcModifier) endEvictLeader(pod *corev1.Pod) error {
+	if !isLeaderEvicting(pod) {
 		return nil
 	}
-	pod := ctx.pod.DeepCopy()
+	pod = pod.DeepCopy()
 
 	delete(pod.Annotations, v1alpha1.EvictLeaderAnnKeyForResize)
-	newPod, err := p.deps.KubeClientset.CoreV1().Pods(pod.Namespace).Update(context.TODO(), pod, metav1.UpdateOptions{})
-	if err != nil {
+	if _, err := p.deps.KubeClientset.CoreV1().Pods(pod.Namespace).Update(context.TODO(), pod, metav1.UpdateOptions{}); err != nil {
 		return fmt.Errorf("add leader eviction annotation to pod %s/%s failed: %s", pod.Namespace, pod.Name, err)
 	}
 
-	ctx.pod = newPod
-
 	return nil
-}
-
-func upgradeRevision(pvc *corev1.PersistentVolumeClaim) {
-	rev := 1
-	str, ok := pvc.Annotations[annoKeyPVCSpecRevision]
-	if ok {
-		oldRev, err := strconv.Atoi(str)
-		if err != nil {
-			klog.Warningf("revision format err: %v, reset to 0", err)
-			oldRev = 0
-		}
-		rev = oldRev + 1
-	}
-
-	if pvc.Annotations == nil {
-		pvc.Annotations = map[string]string{}
-	}
-
-	pvc.Annotations[annoKeyPVCSpecRevision] = strconv.Itoa(rev)
-}
-
-func isPVCStatusMatched(pvc *corev1.PersistentVolumeClaim, scName, size string) bool {
-	isChanged := false
-	oldSc, ok := pvc.Annotations[annoKeyPVCStatusStorageClass]
-	if !ok {
-		oldSc = ignoreNil(pvc.Spec.StorageClassName)
-	}
-	if oldSc != scName {
-		isChanged = true
-	}
-
-	oldSize, ok := pvc.Annotations[annoKeyPVCStatusStorageSize]
-	if !ok {
-		quantity := getStorageSize(pvc.Spec.Resources.Requests)
-		oldSize = quantity.String()
-	}
-	if oldSize != size {
-		isChanged = true
-	}
-	klog.Infof("old sc %s vs new sc %v, old size %v vs new size %v", oldSc, scName, oldSize, size)
-
-	return isChanged
-}
-
-func isPVCSpecMatched(pvc *corev1.PersistentVolumeClaim, scName, size string) bool {
-	isChanged := false
-	oldSc := pvc.Annotations[annoKeyPVCSpecStorageClass]
-	if oldSc != scName {
-		isChanged = true
-	}
-
-	oldSize, ok := pvc.Annotations[annoKeyPVCSpecStorageSize]
-	if !ok {
-		quantity := getStorageSize(pvc.Spec.Resources.Requests)
-		oldSize = quantity.String()
-	}
-	if oldSize != size {
-		isChanged = true
-	}
-
-	return isChanged
-}
-
-func snapshotStorageClassAndSize(pvc *corev1.PersistentVolumeClaim, scName, size string) bool {
-	isChanged := isPVCSpecMatched(pvc, scName, size)
-
-	if pvc.Annotations == nil {
-		pvc.Annotations = map[string]string{}
-	}
-
-	pvc.Annotations[annoKeyPVCSpecStorageClass] = scName
-	pvc.Annotations[annoKeyPVCSpecStorageSize] = size
-
-	return isChanged
-}
-
-func setLastTransitionTimestamp(pvc *corev1.PersistentVolumeClaim) {
-	if pvc.Annotations == nil {
-		pvc.Annotations = map[string]string{}
-	}
-
-	pvc.Annotations[annoKeyPVCLastTransitionTimestamp] = metav1.Now().Format(time.RFC3339)
-}
-
-func (p *pvcModifier) modifyPVCAnnoSpecLastTransitionTimestamp(ctx *componentVolumeContext, vol *actualVolume) error {
-	pvc := vol.pvc.DeepCopy()
-	setLastTransitionTimestamp(pvc)
-	updated, err := p.deps.KubeClientset.CoreV1().PersistentVolumeClaims(pvc.Namespace).Update(ctx, pvc, metav1.UpdateOptions{})
-	if err != nil {
-		return err
-	}
-
-	vol.pvc = updated
-
-	return nil
-
-}
-
-// upgrade revision and snapshot the expected storageclass and size of volume
-func (p *pvcModifier) modifyPVCAnnoSpec(ctx *componentVolumeContext, vol *actualVolume, shouldEvict bool) error {
-	pvc := vol.pvc.DeepCopy()
-
-	size := vol.desired.size.String()
-	scName := ""
-	if vol.desired.sc != nil {
-		scName = vol.desired.sc.Name
-	}
-
-	isChanged := snapshotStorageClassAndSize(pvc, scName, size)
-	if isChanged {
-		upgradeRevision(pvc)
-	}
-
-	if !shouldEvict {
-		setLastTransitionTimestamp(pvc)
-	}
-
-	updated, err := p.deps.KubeClientset.CoreV1().PersistentVolumeClaims(pvc.Namespace).Update(ctx, pvc, metav1.UpdateOptions{})
-	if err != nil {
-		return err
-	}
-
-	vol.pvc = updated
-
-	return nil
-}
-
-func (p *pvcModifier) modifyPVCAnnoStatus(ctx *componentVolumeContext, vol *actualVolume) error {
-	pvc := vol.pvc.DeepCopy()
-
-	if pvc.Annotations == nil {
-		pvc.Annotations = map[string]string{}
-	}
-
-	pvc.Annotations[annoKeyPVCStatusRevision] = pvc.Annotations[annoKeyPVCSpecRevision]
-	pvc.Annotations[annoKeyPVCStatusStorageClass] = pvc.Annotations[annoKeyPVCSpecStorageClass]
-	pvc.Annotations[annoKeyPVCStatusStorageSize] = pvc.Annotations[annoKeyPVCSpecStorageSize]
-
-	updated, err := p.deps.KubeClientset.CoreV1().PersistentVolumeClaims(pvc.Namespace).Update(ctx, pvc, metav1.UpdateOptions{})
-	if err != nil {
-		return err
-	}
-
-	vol.pvc = updated
-
-	return nil
-}
-
-func (p *pvcModifier) modifyVolume(ctx *componentVolumeContext, vol *actualVolume) (bool, error) {
-	m, err := p.getVolumeModifier(vol)
-	if err != nil {
-		return false, err
-	}
-
-	return m.ModifyVolume(ctx, vol.pvc, vol.pv, vol.desired.sc)
-}
-
-func (p *pvcModifier) getVolumeModifier(vol *actualVolume) (delegation.VolumeModifier, error) {
-	// TODO(liubo02)
-	return p.modifiers["aws"], nil
-}
-
-func (p *pvcModifier) getBoundPVFromPVC(pvc *corev1.PersistentVolumeClaim) (*corev1.PersistentVolume, error) {
-	name := pvc.Spec.VolumeName
-
-	return p.deps.PVLister.Get(name)
 }
