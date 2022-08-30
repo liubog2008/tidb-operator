@@ -55,7 +55,8 @@ type tikvUpgrader struct {
 // NewTiKVUpgrader returns a tikv Upgrader
 func NewTiKVUpgrader(deps *controller.Dependencies) TiKVUpgrader {
 	return &tikvUpgrader{
-		deps: deps,
+		deps:           deps,
+		volumeModifier: volumes.NewPodVolumeModifier(deps),
 	}
 }
 
