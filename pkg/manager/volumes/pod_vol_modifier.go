@@ -2,6 +2,7 @@ package volumes
 
 import (
 	"context"
+	"fmt"
 	"strconv"
 	"time"
 
@@ -58,10 +59,11 @@ func (p *podVolModifier) Modify(tc *v1alpha1.TidbCluster, pod *corev1.Pod, expec
 		return false, err
 	}
 
-	completed := true
+	waitForLeaderEviction := false
+
 	isEvicted := true
 	if shouldEvictLeader {
-		isEvicted = !isLeaderEvictedOrTimeout(tc, pod)
+		isEvicted = isLeaderEvictedOrTimeout(tc, pod)
 	}
 
 	errs := []error{}
@@ -72,22 +74,15 @@ func (p *podVolModifier) Modify(tc *v1alpha1.TidbCluster, pod *corev1.Pod, expec
 
 		switch vol.Phase {
 		case VolumePhasePreparing:
-			if err := p.modifyPVCAnnoSpec(ctx, vol, shouldEvictLeader); err != nil {
+			if shouldEvictLeader {
+				if !isEvicted {
+					waitForLeaderEviction = true
+					break
+				}
+			}
+			if err := p.modifyPVCAnnoSpec(ctx, vol, false); err != nil {
 				errs = append(errs, err)
 				continue
-			}
-
-			fallthrough
-		case VolumePhaseWaitForLeaderEviction:
-			if shouldEvictLeader {
-				if isEvicted {
-					completed = false
-					continue
-				}
-				if err := p.modifyPVCAnnoSpecLastTransitionTimestamp(ctx, vol); err != nil {
-					errs = append(errs, err)
-					continue
-				}
 			}
 
 			fallthrough
@@ -98,7 +93,7 @@ func (p *podVolModifier) Modify(tc *v1alpha1.TidbCluster, pod *corev1.Pod, expec
 				continue
 			}
 			if wait {
-				completed = false
+				errs = append(errs, fmt.Errorf("wait for volume modification completed"))
 				continue
 			}
 			// try to resize fs
@@ -108,7 +103,7 @@ func (p *podVolModifier) Modify(tc *v1alpha1.TidbCluster, pod *corev1.Pod, expec
 				continue
 			}
 			if !synced {
-				completed = false
+				errs = append(errs, fmt.Errorf("wait for fs resize completed"))
 				continue
 			}
 			if err := p.modifyPVCAnnoStatus(ctx, vol); err != nil {
@@ -119,7 +114,7 @@ func (p *podVolModifier) Modify(tc *v1alpha1.TidbCluster, pod *corev1.Pod, expec
 
 	}
 
-	return completed, errutil.NewAggregate(errs)
+	return waitForLeaderEviction, errutil.NewAggregate(errs)
 }
 
 func getDesiredVolumeByName(vs []DesiredVolume, name string) *DesiredVolume {

@@ -240,27 +240,55 @@ func (p *pvcModifier) tryToRecreateSTS(ctx *componentVolumeContext) error {
 
 func (p *pvcModifier) tryToModifyPVC(ctx *componentVolumeContext) error {
 	for _, pod := range ctx.pods {
-		completed, err := p.pm.Modify(ctx.tc, pod, ctx.desiredVolumes, ctx.shouldEvict)
+		waitForLeaderEviction, err := p.pm.Modify(ctx.tc, pod, ctx.desiredVolumes, ctx.shouldEvict)
 		if err != nil {
 			return err
 		}
 
-		if !completed {
-			if ctx.shouldEvict {
+		if ctx.shouldEvict {
+			if waitForLeaderEviction {
 				if err := p.evictLeader(pod); err != nil {
 					return err
 				}
+
+				return fmt.Errorf("wait for leader eviction of %s/%s completed", pod.Namespace, pod.Name)
 			}
 
-			return fmt.Errorf("wait for volume modification of %s/%s completed", pod.Namespace, pod.Name)
-		}
+			if err := p.endEvictLeader(pod); err != nil {
+				return err
+			}
 
-		if err := p.endEvictLeader(pod); err != nil {
-			return err
+			if !isLeaderEvictionFinished(ctx.tc, pod) {
+				return fmt.Errorf("wait for leader eviction of %s/%s finished", pod.Namespace, pod.Name)
+			}
+
+			if !isTiKVStoreUp(ctx.tc, pod) {
+				return fmt.Errorf("wait for tikv store %s/%s up", pod.Namespace, pod.Name)
+			}
 		}
 	}
 
 	return nil
+}
+
+func isTiKVStoreUp(tc *v1alpha1.TidbCluster, pod *corev1.Pod) bool {
+	// wait store to be Up
+	for _, store := range tc.Status.TiKV.Stores {
+		if store.PodName == pod.Name && store.State != v1alpha1.TiKVStateUp {
+			return false
+		}
+	}
+
+	return true
+}
+
+func isLeaderEvictionFinished(tc *v1alpha1.TidbCluster, pod *corev1.Pod) bool {
+	if _, exist := tc.Status.TiKV.EvictLeader[pod.Name]; exist {
+		return false
+	}
+
+	return true
+
 }
 
 func isLeaderEvicting(pod *corev1.Pod) bool {
