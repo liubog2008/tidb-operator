@@ -31,10 +31,17 @@ const (
 	// TODO: dynamically depend on type
 	maxSize = 16384
 	minSize = 1
+
+	errCodeNotFound = "InvalidVolumeModification.NotFound"
 )
 
+type EC2VolumeAPI interface {
+	ModifyVolume(ctx context.Context, param *ec2.ModifyVolumeInput, optFns ...func(*ec2.Options)) (*ec2.ModifyVolumeOutput, error)
+	DescribeVolumesModifications(ctx context.Context, param *ec2.DescribeVolumesModificationsInput, optFns ...func(*ec2.Options)) (*ec2.DescribeVolumesModificationsOutput, error)
+}
+
 type EBSModifier struct {
-	c *ec2.Client
+	c EC2VolumeAPI
 }
 
 type Volume struct {
@@ -81,7 +88,7 @@ func (m *EBSModifier) ModifyVolume(ctx context.Context, pvc *corev1.PersistentVo
 		}
 	}
 
-	klog.Infof("actual: %+v, desired: %+v", actual, desired)
+	klog.V(2).Infof("call aws api to modify volume for pvc %s/%s", pvc.Namespace, pvc.Name)
 
 	// retry to modify the volume
 	if _, err := m.c.ModifyVolume(ctx, &ec2.ModifyVolumeInput{
@@ -137,14 +144,15 @@ func (m *EBSModifier) getCurrentVolumeStatus(ctx context.Context, id string) (*V
 	if err != nil {
 		var ae smithy.APIError
 		if errors.As(err, &ae) {
-			klog.Infof("code: %s, message: %s, fault: %s", ae.ErrorCode(), ae.ErrorMessage(), ae.ErrorFault().String())
-			if ae.ErrorCode() == "InvalidVolumeModification.NotFound" {
+			if ae.ErrorCode() == errCodeNotFound {
 				return nil, nil
 			}
 		}
 		return nil, err
 	}
 
+	// TODO: maybe cool down time should also be returned to avoid
+	// recalling ModifyVolume too many times
 	for _, s := range res.VolumesModifications {
 		if s.VolumeId == nil || *s.VolumeId != id {
 			continue
@@ -232,6 +240,9 @@ func (m *EBSModifier) setArgsFromStorageClass(v *Volume, sc *storagev1.StorageCl
 func getParamInt32(params map[string]string, key string) (*int32, error) {
 	str, ok := params[key]
 	if !ok {
+		return nil, nil
+	}
+	if str == "" {
 		return nil, nil
 	}
 	param, err := strconv.ParseInt(str, 10, 32)
