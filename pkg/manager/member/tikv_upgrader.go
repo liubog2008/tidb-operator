@@ -228,7 +228,7 @@ func (u *tikvUpgrader) evictLeaderBeforeUpgrade(tc *v1alpha1.TidbCluster, upgrad
 }
 
 func (u *tikvUpgrader) modifyVolumesBeforeUpgrade(tc *v1alpha1.TidbCluster, upgradePod *corev1.Pod) (bool, error) {
-	desiredVolumes, err := volumes.GetDesiredVolumesForTCComponent(tc, v1alpha1.TiKVMemberType, u.deps.StorageClassLister)
+	desiredVolumes, err := u.volumeModifier.GetDesiredVolumes(tc, v1alpha1.TiKVMemberType)
 	if err != nil {
 		return false, err
 	}
