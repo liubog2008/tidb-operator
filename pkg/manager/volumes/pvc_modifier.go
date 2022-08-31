@@ -124,7 +124,7 @@ func (p *pvcModifier) buildContextForTC(tc *v1alpha1.TidbCluster, status v1alpha
 		status:  status,
 	}
 
-	vs, err := GetDesiredVolumesForTCComponent(tc, comp, p.deps.StorageClassLister)
+	vs, err := p.pm.GetDesiredVolumes(tc, comp)
 	if err != nil {
 		return nil, err
 	}

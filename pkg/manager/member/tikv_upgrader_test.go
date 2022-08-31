@@ -19,7 +19,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/agiledragon/gomonkey/v2"
 	"github.com/pingcap/tidb-operator/pkg/apis/label"
 	"github.com/pingcap/tidb-operator/pkg/apis/pingcap/v1alpha1"
 	"github.com/pingcap/tidb-operator/pkg/controller"
@@ -34,7 +33,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	podinformers "k8s.io/client-go/informers/core/v1"
-	storagelister "k8s.io/client-go/listers/storage/v1"
 	"k8s.io/utils/pointer"
 )
 
@@ -129,11 +127,12 @@ func TestTiKVUpgraderUpgrade(t *testing.T) {
 				return true, nil
 			}
 		}
-		patch := gomonkey.ApplyFunc(volumes.GetDesiredVolumesForTCComponent, func(_ *v1alpha1.TidbCluster, _ v1alpha1.MemberType, _ storagelister.StorageClassLister) ([]volumes.DesiredVolume, error) {
-			return nil, nil
-		})
-		defer patch.Reset()
-		volumeModifier.SetResult(test.modifyVolumesResult())
+		volumeModifier.GetDesiredVolumesFunc = func(_ *v1alpha1.TidbCluster, _ v1alpha1.MemberType) ([]volumes.DesiredVolume, error) {
+			return []volumes.DesiredVolume{}, nil
+		}
+		volumeModifier.ModifyFunc = func(_ *v1alpha1.TidbCluster, _ *corev1.Pod, _ []volumes.DesiredVolume, _ bool) (bool, error) {
+			return test.modifyVolumesResult()
+		}
 
 		err := upgrader.Upgrade(tc, oldSet, newSet)
 		test.errExpectFn(g, err)
