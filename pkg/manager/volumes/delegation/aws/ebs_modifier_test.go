@@ -170,7 +170,7 @@ func TestModifyVolume(t *testing.T) {
 
 	for _, c := range cases {
 		m := &EBSModifier{
-			c: NewMockEC2VolumeAPI(c.getState),
+			c: NewFakeEC2VolumeAPI(c.getState),
 		}
 
 		wait1, err := m.ModifyVolume(context.TODO(), initialPVC, initialPV, initialSC)
