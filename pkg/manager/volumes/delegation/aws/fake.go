@@ -13,26 +13,26 @@ import (
 
 func NewFakeEBSModifier(f GetVolumeStateFunc) delegation.VolumeModifier {
 	return &EBSModifier{
-		c: NewMockEC2VolumeAPI(f),
+		c: NewFakeEC2VolumeAPI(f),
 	}
 }
 
 type GetVolumeStateFunc func(id string) types.VolumeModificationState
 
-type MockEC2VolumeAPI struct {
+type FakeEC2VolumeAPI struct {
 	vs []Volume
 	f  GetVolumeStateFunc
 }
 
-func NewMockEC2VolumeAPI(f GetVolumeStateFunc) *MockEC2VolumeAPI {
-	m := &MockEC2VolumeAPI{
+func NewFakeEC2VolumeAPI(f GetVolumeStateFunc) *FakeEC2VolumeAPI {
+	m := &FakeEC2VolumeAPI{
 		f: f,
 	}
 
 	return m
 }
 
-func (m *MockEC2VolumeAPI) ModifyVolume(ctx context.Context, param *ec2.ModifyVolumeInput, optFns ...func(*ec2.Options)) (*ec2.ModifyVolumeOutput, error) {
+func (m *FakeEC2VolumeAPI) ModifyVolume(ctx context.Context, param *ec2.ModifyVolumeInput, optFns ...func(*ec2.Options)) (*ec2.ModifyVolumeOutput, error) {
 	for i := range m.vs {
 		v := &m.vs[i]
 		if v.VolumeId == *param.VolumeId {
@@ -76,7 +76,7 @@ func (m *MockEC2VolumeAPI) ModifyVolume(ctx context.Context, param *ec2.ModifyVo
 	return &ec2.ModifyVolumeOutput{}, nil
 }
 
-func (m *MockEC2VolumeAPI) DescribeVolumesModifications(ctx context.Context, param *ec2.DescribeVolumesModificationsInput, optFns ...func(*ec2.Options)) (*ec2.DescribeVolumesModificationsOutput, error) {
+func (m *FakeEC2VolumeAPI) DescribeVolumesModifications(ctx context.Context, param *ec2.DescribeVolumesModificationsInput, optFns ...func(*ec2.Options)) (*ec2.DescribeVolumesModificationsOutput, error) {
 	mods := []types.VolumeModification{}
 	for _, id := range param.VolumeIds {
 		for _, v := range m.vs {
