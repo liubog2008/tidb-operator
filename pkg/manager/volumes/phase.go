@@ -22,11 +22,7 @@ const (
 	VolumePhasePreparing
 	// 1. isPVCRevisionChanged: true
 	// 2. needModify: true/false
-	// 3. waitForNextTime: false
-	VolumePhaseWaitForLeaderEviction
-	// 1. isPVCRevisionChanged: true
-	// 2. needModify: true/false
-	// 3. waitForNextTime: true
+	// 3. waitForNextTime: true/false
 	VolumePhaseModifying
 	// 1. isPVCRevisionChanged: false
 	// 2. needModify: false
@@ -40,8 +36,6 @@ func (p VolumePhase) String() string {
 		return "Pending"
 	case VolumePhasePreparing:
 		return "Preparing"
-	case VolumePhaseWaitForLeaderEviction:
-		return "WaitForLeaderEviction"
 	case VolumePhaseModifying:
 		return "Modifying"
 	case VolumePhaseModified:
@@ -53,9 +47,6 @@ func (p VolumePhase) String() string {
 
 func (p *podVolModifier) getVolumePhase(vol *ActualVolume) VolumePhase {
 	if isPVCRevisionChanged(vol.PVC) {
-		if !p.waitForNextTime(vol.PVC, vol.Desired.StorageClass) {
-			return VolumePhaseWaitForLeaderEviction
-		}
 		return VolumePhaseModifying
 	}
 
