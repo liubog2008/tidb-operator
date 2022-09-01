@@ -5,14 +5,13 @@ import (
 	"testing"
 	"time"
 
+	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes/fake"
-
-	"github.com/stretchr/testify/assert"
 
 	"github.com/pingcap/tidb-operator/pkg/apis/pingcap/v1alpha1"
 	"github.com/pingcap/tidb-operator/pkg/controller"
@@ -250,6 +249,7 @@ func TestModify(t *testing.T) {
 		},
 	}
 
+	g := NewGomegaWithT(t)
 	for _, c := range cases {
 		kc := fake.NewSimpleClientset(
 			c.pvc,
@@ -293,14 +293,16 @@ func TestModify(t *testing.T) {
 		}
 
 		wait, err := pvm.Modify(c.tc, c.pod, desired, c.shouldEvictLeader)
-		if err != nil {
-			assert.True(t, c.expectedHasErr, c.desc+", err: %v", err)
+		if c.expectedHasErr {
+			g.Expect(err).Should(HaveOccurred(), c.desc)
+		} else {
+			g.Expect(err).Should(Succeed(), c.desc)
 		}
-		assert.Equal(t, c.expectedWait, wait, c.desc)
+		g.Expect(wait).Should(Equal(c.expectedWait), c.desc)
 
 		resultPVC, err := kc.CoreV1().PersistentVolumeClaims(c.pvc.Namespace).Get(context.TODO(), c.pvc.Name, metav1.GetOptions{})
-		assert.NoError(t, err, c.desc)
+		g.Expect(err).Should(Succeed(), c.desc)
 		delete(resultPVC.Annotations, annoKeyPVCLastTransitionTimestamp)
-		assert.Equal(t, c.expectedPVC, resultPVC, c.desc)
+		g.Expect(resultPVC).Should(Equal(c.expectedPVC), c.desc)
 	}
 }

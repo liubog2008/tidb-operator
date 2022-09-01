@@ -2662,15 +2662,24 @@ type ObservedStorageVolumeStatus struct {
 	// CurrentCount is the count of volumes whose capacity is equal to `currentCapacity`.
 	// +optional
 	CurrentCount int `json:"currentCount"`
-	// ResizedCount is the count of volumes whose capacity is equal to `resizedCapacity`.
-	// +optional
-	ResizedCount int `json:"resizedCount"`
+	// ModifiedCount is the count of modified volumes.
+	ModifiedCount int `json:"modifiedCount"`
 	// CurrentCapacity is the current capacity of the volume.
 	// If any volume is resizing, it is the capacity before resizing.
 	// If all volumes are resized, it is the resized capacity and same as desired capacity.
 	CurrentCapacity resource.Quantity `json:"currentCapacity"`
-	// ResizedCapacity is the desired capacity of the volume.
+	// ModifiedCapacity is the modified capacity of the volume.
+	ModifiedCapacity resource.Quantity `json:"modifiedCapacity"`
+	// CurrentStorageClass is the modified capacity of the volume.
+	CurrentStorageClass string `json:"currentStorageClass"`
+	// ModifiedStorageClass is the modified storage calss of the volume.
+	ModifiedStorageClass string `json:"modifiedStorageClass"`
+
+	// (Deprecated) ResizedCapacity is the desired capacity of the volume.
 	ResizedCapacity resource.Quantity `json:"resizedCapacity"`
+	// (Deprecated) ResizedCount is the count of volumes whose capacity is equal to `resizedCapacity`.
+	// +optional
+	ResizedCount int `json:"resizedCount"`
 }
 
 // StorageVolumeName is the volume name which is same as `volumes.name` in Pod spec.

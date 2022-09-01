@@ -48,22 +48,23 @@ type Controller struct {
 // NewController creates a tidbcluster controller.
 func NewController(deps *controller.Dependencies) *Controller {
 	suspender := suspender.NewSuspender(deps)
+	podVolumeModifier := volumes.NewPodVolumeModifier(deps)
 
 	c := &Controller{
 		deps: deps,
 		control: NewDefaultTidbClusterControl(
 			deps.TiDBClusterControl,
-			mm.NewPDMemberManager(deps, mm.NewPDScaler(deps), mm.NewPDUpgrader(deps), mm.NewPDFailover(deps), suspender),
-			mm.NewTiKVMemberManager(deps, mm.NewTiKVFailover(deps), mm.NewTiKVScaler(deps), mm.NewTiKVUpgrader(deps), suspender),
-			mm.NewTiDBMemberManager(deps, mm.NewTiDBScaler(deps), mm.NewTiDBUpgrader(deps), mm.NewTiDBFailover(deps), suspender),
+			mm.NewPDMemberManager(deps, mm.NewPDScaler(deps), mm.NewPDUpgrader(deps), mm.NewPDFailover(deps), suspender, podVolumeModifier),
+			mm.NewTiKVMemberManager(deps, mm.NewTiKVFailover(deps), mm.NewTiKVScaler(deps), mm.NewTiKVUpgrader(deps, podVolumeModifier), suspender, podVolumeModifier),
+			mm.NewTiDBMemberManager(deps, mm.NewTiDBScaler(deps), mm.NewTiDBUpgrader(deps), mm.NewTiDBFailover(deps), suspender, podVolumeModifier),
 			meta.NewReclaimPolicyManager(deps),
 			meta.NewMetaManager(deps),
 			mm.NewOrphanPodsCleaner(deps),
 			mm.NewRealPVCCleaner(deps),
 			volumes.NewPVCModifier(deps),
-			mm.NewPumpMemberManager(deps, mm.NewPumpScaler(deps), suspender),
-			mm.NewTiFlashMemberManager(deps, mm.NewTiFlashFailover(deps), mm.NewTiFlashScaler(deps), mm.NewTiFlashUpgrader(deps), suspender),
-			mm.NewTiCDCMemberManager(deps, mm.NewTiCDCScaler(deps), mm.NewTiCDCUpgrader(deps), suspender),
+			mm.NewPumpMemberManager(deps, mm.NewPumpScaler(deps), suspender, podVolumeModifier),
+			mm.NewTiFlashMemberManager(deps, mm.NewTiFlashFailover(deps), mm.NewTiFlashScaler(deps), mm.NewTiFlashUpgrader(deps), suspender, podVolumeModifier),
+			mm.NewTiCDCMemberManager(deps, mm.NewTiCDCScaler(deps), mm.NewTiCDCUpgrader(deps), suspender, podVolumeModifier),
 			mm.NewTidbDiscoveryManager(deps),
 			mm.NewTidbClusterStatusManager(deps),
 			&tidbClusterConditionUpdater{},

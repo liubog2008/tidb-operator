@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
+	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -151,6 +151,7 @@ func TestGetVolumePhase(t *testing.T) {
 		},
 	}
 
+	g := NewGomegaWithT(t)
 	for _, c := range cases {
 		actual := ActualVolume{
 			PVC: c.pvc,
@@ -160,6 +161,6 @@ func TestGetVolumePhase(t *testing.T) {
 			},
 		}
 		phase := pvm.getVolumePhase(&actual)
-		assert.Equal(t, c.expected, phase, c.desc)
+		g.Expect(phase).Should(Equal(c.expected), c.desc)
 	}
 }
