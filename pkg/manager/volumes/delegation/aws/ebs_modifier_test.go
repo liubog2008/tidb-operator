@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
-	"github.com/stretchr/testify/assert"
+	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -168,19 +168,22 @@ func TestModifyVolume(t *testing.T) {
 		},
 	}
 
+	g := NewGomegaWithT(t)
 	for _, c := range cases {
 		m := &EBSModifier{
 			c: NewFakeEC2VolumeAPI(c.getState),
 		}
 
 		wait1, err := m.ModifyVolume(context.TODO(), initialPVC, initialPV, initialSC)
-		assert.NoError(t, err, c.desc)
-		assert.True(t, wait1, c.desc)
+		g.Expect(err).Should(Succeed(), c.desc)
+		g.Expect(wait1).Should(BeTrue(), c.desc)
 
 		wait2, err := m.ModifyVolume(context.TODO(), c.pvc, c.pv, c.sc)
-		if err != nil {
-			assert.True(t, c.hasErr, c.desc)
+		if c.hasErr {
+			g.Expect(err).Should(HaveOccurred(), c.desc)
+		} else {
+			g.Expect(err).Should(Succeed(), c.desc)
 		}
-		assert.Equal(t, c.wait, wait2, c.desc)
+		g.Expect(wait2).Should(Equal(c.wait), c.desc)
 	}
 }

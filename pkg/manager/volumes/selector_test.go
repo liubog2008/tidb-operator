@@ -3,7 +3,7 @@ package volumes
 import (
 	"testing"
 
-	"github.com/stretchr/testify/assert"
+	. "github.com/onsi/gomega"
 
 	"github.com/pingcap/tidb-operator/pkg/apis/pingcap/v1alpha1"
 )
@@ -63,11 +63,14 @@ func TestNewSelector(t *testing.T) {
 
 	sf := MustNewSelectorFactory()
 
+	g := NewGomegaWithT(t)
 	for _, c := range cases {
 		s, err := sf.NewSelector(c.instance, c.mt)
-		if err != nil {
-			assert.True(t, c.expectedHasErr)
+		if c.expectedHasErr {
+			g.Expect(err).Should(HaveOccurred())
+		} else {
+			g.Expect(err).Should(Succeed(), c.desc)
 		}
-		assert.Equal(t, c.expected, s.String(), c.desc)
+		g.Expect(s.String()).Should(Equal(c.expected), c.desc)
 	}
 }
