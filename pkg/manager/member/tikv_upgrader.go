@@ -193,8 +193,7 @@ func (u *tikvUpgrader) upgradeTiKVPod(tc *v1alpha1.TidbCluster, ordinal int32, n
 		return controller.RequeueErrorf("upgradeTiKVPod: evicting leader of pod %s for tc %s/%s", upgradePodName, ns, tcName)
 	}
 
-	done, err = u.modifyVolumesBeforeUpgrade(tc, upgradePod)
-	if err != nil {
+	if err := u.modifyVolumesBeforeUpgrade(tc, upgradePod); err != nil {
 		return fmt.Errorf("upgradeTiKVPod: failed to modify volumes of pod %s for tc %s/%s, error: %s", upgradePodName, ns, tcName, err)
 	}
 	if !done {
@@ -248,14 +247,18 @@ func (u *tikvUpgrader) evictLeaderBeforeUpgrade(tc *v1alpha1.TidbCluster, upgrad
 	return false, nil
 }
 
-func (u *tikvUpgrader) modifyVolumesBeforeUpgrade(tc *v1alpha1.TidbCluster, upgradePod *corev1.Pod) (bool, error) {
+func (u *tikvUpgrader) modifyVolumesBeforeUpgrade(tc *v1alpha1.TidbCluster, upgradePod *corev1.Pod) error {
 	desiredVolumes, err := u.volumeModifier.GetDesiredVolumes(tc, v1alpha1.TiKVMemberType)
 	if err != nil {
-		return false, err
+		return err
 	}
 
-	shouldEvictLeader := false // leader have been evicted, so no need to check leader count in modifying
-	return u.volumeModifier.Modify(tc, upgradePod, desiredVolumes, shouldEvictLeader)
+	actual, err := u.volumeModifier.GetActualVolumes(upgradePod, desiredVolumes)
+	if err != nil {
+		return err
+	}
+
+	return u.volumeModifier.Modify(actual)
 }
 
 func (u *tikvUpgrader) beginEvictLeader(tc *v1alpha1.TidbCluster, storeID uint64, pod *corev1.Pod) error {
