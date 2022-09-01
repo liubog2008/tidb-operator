@@ -98,6 +98,7 @@ func needModify(pvc *corev1.PersistentVolumeClaim, desired *DesiredVolume) bool 
 	return isPVCStatusMatched(pvc, scName, size)
 }
 
+// TODO(shiori): use actual volume to get sc and size
 func isPVCStatusMatched(pvc *corev1.PersistentVolumeClaim, scName, size string) bool {
 	isChanged := false
 	oldSc, ok := pvc.Annotations[annoKeyPVCStatusStorageClass]

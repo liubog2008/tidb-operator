@@ -48,10 +48,10 @@ type tikvUpgrader struct {
 }
 
 // NewTiKVUpgrader returns a tikv Upgrader
-func NewTiKVUpgrader(deps *controller.Dependencies) TiKVUpgrader {
+func NewTiKVUpgrader(deps *controller.Dependencies, pvm volumes.PodVolumeModifier) TiKVUpgrader {
 	return &tikvUpgrader{
 		deps:           deps,
-		volumeModifier: volumes.NewPodVolumeModifier(deps),
+		volumeModifier: pvm,
 	}
 }
 
@@ -233,7 +233,8 @@ func (u *tikvUpgrader) modifyVolumesBeforeUpgrade(tc *v1alpha1.TidbCluster, upgr
 		return false, err
 	}
 
-	return u.volumeModifier.Modify(tc, upgradePod, desiredVolumes, true)
+	shouldEvictLeader := false // leader have been evicted, so no need to check leader count in modifying
+	return u.volumeModifier.Modify(tc, upgradePod, desiredVolumes, shouldEvictLeader)
 }
 
 func (u *tikvUpgrader) beginEvictLeader(tc *v1alpha1.TidbCluster, storeID uint64, pod *corev1.Pod) error {

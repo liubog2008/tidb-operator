@@ -33,11 +33,39 @@ type DesiredVolume struct {
 	StorageClass *storagev1.StorageClass
 }
 
+// TODO(shiori): maybe use sc as string
+func (v *DesiredVolume) GetStorageClassName() string {
+	if v.StorageClass == nil {
+		return ""
+	}
+	return v.StorageClass.Name
+}
+
+// TODO(shiori): change Size to resource.Quantity and do not use `resource.MustParse`
+func (v *DesiredVolume) GetStorageSize() resource.Quantity {
+	return resource.MustParse(v.Size)
+}
+
 type ActualVolume struct {
 	Desired *DesiredVolume
 	PVC     *corev1.PersistentVolumeClaim
 	PV      *corev1.PersistentVolume
 	Phase   VolumePhase
+}
+
+func (v *ActualVolume) GetStorageClassName() string {
+	sc := ignoreNil(v.PVC.Spec.StorageClassName)
+
+	scAnno, ok := v.PVC.Annotations[annoKeyPVCStatusStorageClass]
+	if ok {
+		sc = scAnno
+	}
+
+	return sc
+}
+
+func (v *ActualVolume) GetStorageSize() resource.Quantity {
+	return getStorageSize(v.PVC.Status.Capacity)
 }
 
 type podVolModifier struct {
