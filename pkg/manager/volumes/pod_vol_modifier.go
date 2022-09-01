@@ -24,7 +24,8 @@ type PodVolumeModifier interface {
 	GetDesiredVolumes(tc *v1alpha1.TidbCluster, mt v1alpha1.MemberType) ([]DesiredVolume, error)
 	GetActualVolumes(pod *corev1.Pod, vs []DesiredVolume) ([]ActualVolume, error)
 
-	Modify(tc *v1alpha1.TidbCluster, pod *corev1.Pod, expected []DesiredVolume, shouldEvictLeader bool) (bool, error)
+	ShouldModify(actual []ActualVolume) bool
+	Modify(actual []ActualVolume) error
 }
 
 type DesiredVolume struct {
@@ -83,20 +84,20 @@ func NewPodVolumeModifier(deps *controller.Dependencies) PodVolumeModifier {
 	}
 }
 
-func (p *podVolModifier) Modify(tc *v1alpha1.TidbCluster, pod *corev1.Pod, expected []DesiredVolume, shouldEvictLeader bool) (bool, error) {
+func (p *podVolModifier) ShouldModify(actual []ActualVolume) bool {
+	for i := range actual {
+		vol := &actual[i]
+		switch vol.Phase {
+		case VolumePhasePreparing, VolumePhaseModifying:
+			return true
+		}
+	}
+
+	return false
+}
+
+func (p *podVolModifier) Modify(actual []ActualVolume) error {
 	ctx := context.TODO()
-
-	actual, err := p.GetActualVolumes(pod, expected)
-	if err != nil {
-		return false, err
-	}
-
-	waitForLeaderEviction := false
-
-	isEvicted := true
-	if shouldEvictLeader {
-		isEvicted = isLeaderEvictedOrTimeout(tc, pod)
-	}
 
 	errs := []error{}
 
@@ -106,12 +107,6 @@ func (p *podVolModifier) Modify(tc *v1alpha1.TidbCluster, pod *corev1.Pod, expec
 
 		switch vol.Phase {
 		case VolumePhasePreparing:
-			if shouldEvictLeader {
-				if !isEvicted {
-					waitForLeaderEviction = true
-					break
-				}
-			}
 			if err := p.modifyPVCAnnoSpec(ctx, vol, false); err != nil {
 				errs = append(errs, err)
 				continue
@@ -146,7 +141,7 @@ func (p *podVolModifier) Modify(tc *v1alpha1.TidbCluster, pod *corev1.Pod, expec
 
 	}
 
-	return waitForLeaderEviction, errutil.NewAggregate(errs)
+	return errutil.NewAggregate(errs)
 }
 
 // TODO: it should be refactored

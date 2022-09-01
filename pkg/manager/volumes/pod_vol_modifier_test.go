@@ -13,31 +13,9 @@ import (
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes/fake"
 
-	"github.com/pingcap/tidb-operator/pkg/apis/pingcap/v1alpha1"
 	"github.com/pingcap/tidb-operator/pkg/controller"
 	"github.com/pingcap/tidb-operator/pkg/manager/volumes/delegation"
 )
-
-func newTestPodForModify() *corev1.Pod {
-	return &corev1.Pod{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "test",
-			Namespace: "test",
-		},
-		Spec: corev1.PodSpec{
-			Volumes: []corev1.Volume{
-				{
-					Name: "test",
-					VolumeSource: corev1.VolumeSource{
-						PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
-							ClaimName: "test-pvc",
-						},
-					},
-				},
-			},
-		},
-	}
-}
 
 func newTestPVCForModify(sc *string, specSize, statusSize string, anno map[string]string) *corev1.PersistentVolumeClaim {
 	a := resource.MustParse(specSize)
@@ -83,25 +61,6 @@ func newTestSCForModify(name, provisioner string) *storagev1.StorageClass {
 	}
 }
 
-func newTidbClusterForModify(leaderCount int32) *v1alpha1.TidbCluster {
-	return &v1alpha1.TidbCluster{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "test",
-			Namespace: "test",
-		},
-		Status: v1alpha1.TidbClusterStatus{
-			TiKV: v1alpha1.TiKVStatus{
-				Stores: map[string]v1alpha1.TiKVStore{
-					"1": {
-						PodName:     "test",
-						LeaderCount: leaderCount,
-					},
-				},
-			},
-		},
-	}
-}
-
 func TestModify(t *testing.T) {
 	oldSize := "10Gi"
 	newSize := "20Gi"
@@ -111,10 +70,7 @@ func TestModify(t *testing.T) {
 	provisioner := "test"
 
 	cases := []struct {
-		desc              string
-		tc                *v1alpha1.TidbCluster
-		pod               *corev1.Pod
-		shouldEvictLeader bool
+		desc string
 
 		pvc  *corev1.PersistentVolumeClaim
 		pv   *corev1.PersistentVolume
@@ -124,26 +80,19 @@ func TestModify(t *testing.T) {
 		isModifyVolumeFinished bool
 
 		expectedPVC    *corev1.PersistentVolumeClaim
-		expectedWait   bool
 		expectedHasErr bool
 	}{
 		{
 			desc: "volume is not changed",
-			tc:   newTidbClusterForModify(0),
-			pod:  newTestPodForModify(),
-
 			pvc:  newTestPVCForModify(&oldSc, oldSize, oldSize, nil),
 			pv:   newTestPVForModify(),
 			sc:   newTestSCForModify(oldSc, provisioner),
 			size: oldSize,
 
-			expectedPVC:  newTestPVCForModify(&oldSc, oldSize, oldSize, nil),
-			expectedWait: false,
+			expectedPVC: newTestPVCForModify(&oldSc, oldSize, oldSize, nil),
 		},
 		{
 			desc: "volume size is changed, and revision has not been upgraded",
-			tc:   newTidbClusterForModify(0),
-			pod:  newTestPodForModify(),
 
 			pvc:  newTestPVCForModify(&oldSc, oldSize, oldSize, nil),
 			pv:   newTestPVForModify(),
@@ -157,13 +106,10 @@ func TestModify(t *testing.T) {
 				annoKeyPVCSpecStorageClass: oldSc,
 				annoKeyPVCSpecStorageSize:  newSize,
 			}),
-			expectedWait:   false,
 			expectedHasErr: true,
 		},
 		{
 			desc: "volume size is changed, and delegate modification is finished",
-			tc:   newTidbClusterForModify(0),
-			pod:  newTestPodForModify(),
 
 			pvc: newTestPVCForModify(&oldSc, oldSize, oldSize, map[string]string{
 				annoKeyPVCSpecRevision:     "1",
@@ -181,13 +127,10 @@ func TestModify(t *testing.T) {
 				annoKeyPVCSpecStorageClass: oldSc,
 				annoKeyPVCSpecStorageSize:  newSize,
 			}),
-			expectedWait:   false,
 			expectedHasErr: true,
 		},
 		{
 			desc: "volume size is changed, and fs resize is finished",
-			tc:   newTidbClusterForModify(0),
-			pod:  newTestPodForModify(),
 
 			pvc: newTestPVCForModify(&oldSc, newSize, newSize, map[string]string{
 				annoKeyPVCSpecRevision:     "1",
@@ -208,44 +151,6 @@ func TestModify(t *testing.T) {
 				annoKeyPVCStatusStorageClass: oldSc,
 				annoKeyPVCStatusStorageSize:  newSize,
 			}),
-			expectedWait: false,
-		},
-		{
-			desc:              "volume size is changed, but leader count is not 0",
-			tc:                newTidbClusterForModify(10),
-			pod:               newTestPodForModify(),
-			shouldEvictLeader: true,
-
-			pvc:  newTestPVCForModify(&oldSc, oldSize, oldSize, nil),
-			pv:   newTestPVForModify(),
-			sc:   newTestSCForModify(oldSc, provisioner),
-			size: newSize,
-
-			isModifyVolumeFinished: false,
-
-			expectedPVC:  newTestPVCForModify(&oldSc, oldSize, oldSize, nil),
-			expectedWait: true,
-		},
-		{
-			desc:              "volume size is changed, and leader count is 0",
-			tc:                newTidbClusterForModify(0),
-			pod:               newTestPodForModify(),
-			shouldEvictLeader: true,
-
-			pvc:  newTestPVCForModify(&oldSc, oldSize, oldSize, nil),
-			pv:   newTestPVForModify(),
-			sc:   newTestSCForModify(oldSc, provisioner),
-			size: newSize,
-
-			isModifyVolumeFinished: false,
-
-			expectedPVC: newTestPVCForModify(&oldSc, oldSize, oldSize, map[string]string{
-				annoKeyPVCSpecRevision:     "1",
-				annoKeyPVCSpecStorageClass: oldSc,
-				annoKeyPVCSpecStorageSize:  newSize,
-			}),
-			expectedWait:   false,
-			expectedHasErr: true,
 		},
 	}
 
@@ -284,21 +189,25 @@ func TestModify(t *testing.T) {
 			},
 		}
 
-		desired := []DesiredVolume{
-			{
+		actual := ActualVolume{
+			Desired: &DesiredVolume{
 				Name:         "test",
 				Size:         c.size,
 				StorageClass: c.sc,
 			},
+			PVC: c.pvc,
+			PV:  c.pv,
 		}
 
-		wait, err := pvm.Modify(c.tc, c.pod, desired, c.shouldEvictLeader)
+		phase := pvm.getVolumePhase(&actual)
+		actual.Phase = phase
+
+		err := pvm.Modify([]ActualVolume{actual})
 		if c.expectedHasErr {
 			g.Expect(err).Should(HaveOccurred(), c.desc)
 		} else {
 			g.Expect(err).Should(Succeed(), c.desc)
 		}
-		g.Expect(wait).Should(Equal(c.expectedWait), c.desc)
 
 		resultPVC, err := kc.CoreV1().PersistentVolumeClaims(c.pvc.Namespace).Get(context.TODO(), c.pvc.Name, metav1.GetOptions{})
 		g.Expect(err).Should(Succeed(), c.desc)
