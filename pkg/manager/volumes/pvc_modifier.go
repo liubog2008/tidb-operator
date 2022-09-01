@@ -76,9 +76,6 @@ func (p *pvcModifier) Sync(tc *v1alpha1.TidbCluster) error {
 			continue
 		}
 
-		// TODO
-		// p.updateVolumeStatus(ctx)
-
 		err = p.modifyVolumes(ctx)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("modify volumes for %s failed: %w", ctx.ComponentID(), err))
@@ -240,31 +237,48 @@ func (p *pvcModifier) tryToRecreateSTS(ctx *componentVolumeContext) error {
 
 func (p *pvcModifier) tryToModifyPVC(ctx *componentVolumeContext) error {
 	for _, pod := range ctx.pods {
-		waitForLeaderEviction, err := p.pm.Modify(ctx.tc, pod, ctx.desiredVolumes, ctx.shouldEvict)
+		actual, err := p.pm.GetActualVolumes(pod, ctx.desiredVolumes)
 		if err != nil {
 			return err
 		}
 
+		isNeed := p.pm.ShouldModify(actual)
+
 		if ctx.shouldEvict {
-			if waitForLeaderEviction {
+			// ensure leader eviction is finished and tikv store is up
+			if !isNeed {
+				if err := p.endEvictLeader(pod); err != nil {
+					return err
+				}
+
+				if !isLeaderEvictionFinished(ctx.tc, pod) {
+					return fmt.Errorf("wait for leader eviction of %s/%s finished", pod.Namespace, pod.Name)
+				}
+
+				if !isTiKVStoreUp(ctx.tc, pod) {
+					return fmt.Errorf("wait for tikv store %s/%s up", pod.Namespace, pod.Name)
+				}
+
+				continue
+			}
+
+			// try to evict leader if need to modify
+			isEvicted := isLeaderEvictedOrTimeout(ctx.tc, pod)
+			if !isEvicted {
 				if err := p.evictLeader(pod); err != nil {
 					return err
 				}
 
 				return fmt.Errorf("wait for leader eviction of %s/%s completed", pod.Namespace, pod.Name)
 			}
+		}
 
-			if err := p.endEvictLeader(pod); err != nil {
-				return err
-			}
+		if !isNeed {
+			continue
+		}
 
-			if !isLeaderEvictionFinished(ctx.tc, pod) {
-				return fmt.Errorf("wait for leader eviction of %s/%s finished", pod.Namespace, pod.Name)
-			}
-
-			if !isTiKVStoreUp(ctx.tc, pod) {
-				return fmt.Errorf("wait for tikv store %s/%s up", pod.Namespace, pod.Name)
-			}
+		if err := p.pm.Modify(actual); err != nil {
+			return err
 		}
 	}
 
