@@ -55,7 +55,7 @@ func TestTiKVUpgraderUpgrade(t *testing.T) {
 		leaderCount         int
 		podName             string
 		updatePodErr        bool
-		modifyVolumesErr    bool
+		modifyVolumesResult func() (bool /*should modify*/, error /*result of modify*/) // default to (true, nil)
 		errExpectFn         func(*GomegaWithT, error)
 		expectFn            func(*GomegaWithT, *v1alpha1.TidbCluster, *apps.StatefulSet, map[string]*corev1.Pod)
 	}
@@ -121,14 +121,21 @@ func TestTiKVUpgraderUpgrade(t *testing.T) {
 			podControl.SetUpdatePodError(fmt.Errorf("failed to update pod"), 0)
 		}
 
+		// mock result of volume modification
+		if test.modifyVolumesResult == nil {
+			test.modifyVolumesResult = func() (bool, error) {
+				return false, nil
+			}
+		}
+		shouldModify, resultOfModify := test.modifyVolumesResult()
 		volumeModifier.GetDesiredVolumesFunc = func(_ *v1alpha1.TidbCluster, _ v1alpha1.MemberType) ([]volumes.DesiredVolume, error) {
 			return []volumes.DesiredVolume{}, nil
 		}
+		volumeModifier.ShouldModifyFunc = func(_ []volumes.ActualVolume) bool {
+			return shouldModify
+		}
 		volumeModifier.ModifyFunc = func(_ []volumes.ActualVolume) error {
-			if test.modifyVolumesErr {
-				return fmt.Errorf("test error")
-			}
-			return nil
+			return resultOfModify
 		}
 
 		err := upgrader.Upgrade(tc, oldSet, newSet)
@@ -714,6 +721,42 @@ func TestTiKVUpgraderUpgrade(t *testing.T) {
 			},
 		},
 		{
+			name: "wait for volume modification for store[2]",
+			changeFn: func(tc *v1alpha1.TidbCluster) {
+				tc.Status.PD.Phase = v1alpha1.NormalPhase
+				tc.Status.TiKV.Phase = v1alpha1.UpgradePhase
+				tc.Status.TiKV.Synced = true
+				tc.Status.TiKV.StatefulSet.CurrentReplicas = 2
+				tc.Status.TiKV.StatefulSet.UpdatedReplicas = 1
+			},
+			changeOldSet: func(oldSet *apps.StatefulSet) {
+				mngerutils.SetStatefulSetLastAppliedConfigAnnotation(oldSet)
+				oldSet.Status.CurrentReplicas = 2
+				oldSet.Status.UpdatedReplicas = 1
+				oldSet.Spec.UpdateStrategy.RollingUpdate.Partition = pointer.Int32Ptr(2)
+			},
+			changePods: func(pods []*corev1.Pod) {
+				for _, pod := range pods {
+					if pod.GetName() == TikvPodName(upgradeTcName, 1) {
+						pod.Annotations = map[string]string{EvictLeaderBeginTime: time.Time{}.Format(time.RFC3339)} // skip evict leader
+					}
+				}
+			},
+			beginEvictLeaderErr: false,
+			endEvictLeaderErr:   false,
+			updatePodErr:        false,
+			modifyVolumesResult: func() (bool, error) {
+				return true, nil // volume modification is not finished
+			},
+			errExpectFn: func(g *GomegaWithT, err error) {
+				g.Expect(err).To(HaveOccurred())
+				g.Expect(err.Error()).To(ContainSubstring("modifying volumes of pod upgrader-tikv-1 for tc default/upgrader"))
+			},
+			expectFn: func(g *GomegaWithT, tc *v1alpha1.TidbCluster, newSet *apps.StatefulSet, pods map[string]*corev1.Pod) {
+				g.Expect(*newSet.Spec.UpdateStrategy.RollingUpdate.Partition).To(Equal(int32(2)))
+			},
+		},
+		{
 			name: "failed to modify volumes for store[2]",
 			changeFn: func(tc *v1alpha1.TidbCluster) {
 				tc.Status.PD.Phase = v1alpha1.NormalPhase
@@ -738,7 +781,9 @@ func TestTiKVUpgraderUpgrade(t *testing.T) {
 			beginEvictLeaderErr: false,
 			endEvictLeaderErr:   false,
 			updatePodErr:        false,
-			modifyVolumesErr:    true,
+			modifyVolumesResult: func() (bool, error) {
+				return true, fmt.Errorf("test error") // volume modification is failed
+			},
 			errExpectFn: func(g *GomegaWithT, err error) {
 				g.Expect(err).To(HaveOccurred())
 				g.Expect(err.Error()).To(ContainSubstring("upgradeTiKVPod: failed to modify volumes of pod upgrader-tikv-1 for tc default/upgrader, error: test error"))
