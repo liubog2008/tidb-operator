@@ -28,7 +28,7 @@ func (pvm *FakePodVolumeModifier) ShouldModify(actual []ActualVolume) bool {
 	if pvm.ShouldModifyFunc == nil {
 		return false
 	}
-	return pvm.ShouldModify(actual)
+	return pvm.ShouldModifyFunc(actual)
 }
 
 func (pvm *FakePodVolumeModifier) Modify(actual []ActualVolume) error {
