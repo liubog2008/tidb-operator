@@ -45,14 +45,18 @@ func SyncVolumeStatus(pvm PodVolumeModifier, podLister corelisterv1.PodLister, t
 	}
 
 	// build observed status
-	observedStatus := ObserveVolumeStatus(pvm, pods, desiredVolumes)
+	observedStatus := observeVolumeStatus(pvm, pods, desiredVolumes)
+	updateVolumeStatus(status, observedStatus)
 
-	// sync volume status
+	return nil
+}
+
+func updateVolumeStatus(status v1alpha1.ComponentStatus, observed map[v1alpha1.StorageVolumeName]*v1alpha1.ObservedStorageVolumeStatus) {
 	if status.GetVolumes() == nil {
 		status.SetVolumes(map[v1alpha1.StorageVolumeName]*v1alpha1.StorageVolumeStatus{})
 	}
 	volumeStatus := status.GetVolumes()
-	for volName, status := range observedStatus {
+	for volName, status := range observed {
 		if _, exist := volumeStatus[volName]; !exist {
 			volumeStatus[volName] = &v1alpha1.StorageVolumeStatus{
 				Name: volName,
@@ -61,15 +65,13 @@ func SyncVolumeStatus(pvm PodVolumeModifier, podLister corelisterv1.PodLister, t
 		volumeStatus[volName].ObservedStorageVolumeStatus = *status
 	}
 	for _, status := range volumeStatus {
-		if _, exist := observedStatus[status.Name]; !exist {
+		if _, exist := observed[status.Name]; !exist {
 			delete(volumeStatus, status.Name)
 		}
 	}
-
-	return nil
 }
 
-func ObserveVolumeStatus(pvm PodVolumeModifier, pods []*v1.Pod, desiredVolumes []DesiredVolume) map[v1alpha1.StorageVolumeName]*v1alpha1.ObservedStorageVolumeStatus {
+func observeVolumeStatus(pvm PodVolumeModifier, pods []*v1.Pod, desiredVolumes []DesiredVolume) map[v1alpha1.StorageVolumeName]*v1alpha1.ObservedStorageVolumeStatus {
 	observedStatus := map[v1alpha1.StorageVolumeName]*v1alpha1.ObservedStorageVolumeStatus{}
 	for _, pod := range pods {
 		actualVolumes, err := pvm.GetActualVolumes(pod, desiredVolumes)
