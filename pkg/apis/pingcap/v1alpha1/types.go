@@ -2582,19 +2582,25 @@ type ObservedStorageVolumeStatus struct {
 	// +optional
 	CurrentCount int `json:"currentCount"`
 	// ModifiedCount is the count of modified volumes.
+	// +optional
 	ModifiedCount int `json:"modifiedCount"`
 	// CurrentCapacity is the current capacity of the volume.
 	// If any volume is resizing, it is the capacity before resizing.
 	// If all volumes are resized, it is the resized capacity and same as desired capacity.
+	// +optional
 	CurrentCapacity resource.Quantity `json:"currentCapacity"`
 	// ModifiedCapacity is the modified capacity of the volume.
+	// +optional
 	ModifiedCapacity resource.Quantity `json:"modifiedCapacity"`
 	// CurrentStorageClass is the modified capacity of the volume.
+	// +optional
 	CurrentStorageClass string `json:"currentStorageClass"`
 	// ModifiedStorageClass is the modified storage calss of the volume.
+	// +optional
 	ModifiedStorageClass string `json:"modifiedStorageClass"`
 
 	// (Deprecated) ResizedCapacity is the desired capacity of the volume.
+	// +optional
 	ResizedCapacity resource.Quantity `json:"resizedCapacity"`
 	// (Deprecated) ResizedCount is the count of volumes whose capacity is equal to `resizedCapacity`.
 	// +optional
