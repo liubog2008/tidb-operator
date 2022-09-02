@@ -8,6 +8,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
+	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	errutil "k8s.io/apimachinery/pkg/util/errors"
@@ -76,6 +77,9 @@ func (p *pvcModifier) Sync(tc *v1alpha1.TidbCluster) error {
 			continue
 		}
 
+		observedStatus := observeVolumeStatus(p.pm, ctx.pods, ctx.desiredVolumes)
+		updateVolumeStatus(ctx.status, observedStatus)
+
 		err = p.modifyVolumes(ctx)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("modify volumes for %s failed: %w", ctx.ComponentID(), err))
@@ -99,17 +103,6 @@ func ignoreNil(s *string) string {
 
 func getTcKey(tc *v1alpha1.TidbCluster) string {
 	return fmt.Sprintf("%s/%s", tc.GetNamespace(), tc.GetName())
-}
-
-func getComponentKey(tc *v1alpha1.TidbCluster, mt v1alpha1.MemberType) string {
-	return fmt.Sprintf("%s:%s", getTcKey(tc), mt)
-}
-
-func (p *pvcModifier) getStorageClass(name *string) (*storagev1.StorageClass, error) {
-	if name == nil {
-		return nil, nil
-	}
-	return p.deps.StorageClassLister.Get(*name)
 }
 
 func (p *pvcModifier) buildContextForTC(tc *v1alpha1.TidbCluster, status v1alpha1.ComponentStatus) (*componentVolumeContext, error) {
@@ -247,12 +240,8 @@ func (p *pvcModifier) tryToModifyPVC(ctx *componentVolumeContext) error {
 		if ctx.shouldEvict {
 			// ensure leader eviction is finished and tikv store is up
 			if !isNeed {
-				if err := p.endEvictLeader(pod); err != nil {
+				if err := p.endEvictLeader(ctx.tc, pod); err != nil {
 					return err
-				}
-
-				if !isLeaderEvictionFinished(ctx.tc, pod) {
-					return fmt.Errorf("wait for leader eviction of %s/%s finished", pod.Namespace, pod.Name)
 				}
 
 				if !isTiKVStoreUp(ctx.tc, pod) {
@@ -265,7 +254,7 @@ func (p *pvcModifier) tryToModifyPVC(ctx *componentVolumeContext) error {
 			// try to evict leader if need to modify
 			isEvicted := isLeaderEvictedOrTimeout(ctx.tc, pod)
 			if !isEvicted {
-				if err := p.evictLeader(pod); err != nil {
+				if err := p.evictLeader(ctx.tc, pod); err != nil {
 					return err
 				}
 
@@ -283,6 +272,35 @@ func (p *pvcModifier) tryToModifyPVC(ctx *componentVolumeContext) error {
 	}
 
 	return nil
+}
+
+func ensureTiKVLeaderEvictionCondition(tc *v1alpha1.TidbCluster, status metav1.ConditionStatus) bool {
+	if meta.IsStatusConditionPresentAndEqual(tc.Status.TiKV.Conditions, v1alpha1.ConditionTypeLeaderEvicting, status) {
+		return false
+	}
+
+	var reason, message string
+
+	switch status {
+	case metav1.ConditionTrue:
+		reason = "ModifyVolume"
+		message = "Evicting leader for volume modification"
+	case metav1.ConditionFalse:
+		reason = "NoLeaderEviction"
+		message = "Leader can be scheduled to all nodes"
+	case metav1.ConditionUnknown:
+		reason = "Unknown"
+		message = "Leader eviction status is unknown"
+	}
+	cond := metav1.Condition{
+		Type:    v1alpha1.ConditionTypeLeaderEvicting,
+		Status:  status,
+		Reason:  reason,
+		Message: message,
+	}
+
+	meta.SetStatusCondition(&tc.Status.TiKV.Conditions, cond)
+	return true
 }
 
 func isTiKVStoreUp(tc *v1alpha1.TidbCluster, pod *corev1.Pod) bool {
@@ -310,7 +328,11 @@ func isLeaderEvicting(pod *corev1.Pod) bool {
 	return exist
 }
 
-func (p *pvcModifier) evictLeader(pod *corev1.Pod) error {
+func (p *pvcModifier) evictLeader(tc *v1alpha1.TidbCluster, pod *corev1.Pod) error {
+	if ensureTiKVLeaderEvictionCondition(tc, metav1.ConditionTrue) {
+		// return to sync tc
+		return fmt.Errorf("try to evict leader for pod %s", pod.Namespace, pod.Name)
+	}
 	if isLeaderEvicting(pod) {
 		return nil
 	}
@@ -328,15 +350,23 @@ func (p *pvcModifier) evictLeader(pod *corev1.Pod) error {
 	return nil
 }
 
-func (p *pvcModifier) endEvictLeader(pod *corev1.Pod) error {
-	if !isLeaderEvicting(pod) {
-		return nil
-	}
-	pod = pod.DeepCopy()
+func (p *pvcModifier) endEvictLeader(tc *v1alpha1.TidbCluster, pod *corev1.Pod) error {
+	if isLeaderEvicting(pod) {
+		pod = pod.DeepCopy()
 
-	delete(pod.Annotations, v1alpha1.EvictLeaderAnnKeyForResize)
-	if _, err := p.deps.KubeClientset.CoreV1().Pods(pod.Namespace).Update(context.TODO(), pod, metav1.UpdateOptions{}); err != nil {
-		return fmt.Errorf("add leader eviction annotation to pod %s/%s failed: %s", pod.Namespace, pod.Name, err)
+		delete(pod.Annotations, v1alpha1.EvictLeaderAnnKeyForResize)
+		if _, err := p.deps.KubeClientset.CoreV1().Pods(pod.Namespace).Update(context.TODO(), pod, metav1.UpdateOptions{}); err != nil {
+			return fmt.Errorf("add leader eviction annotation to pod %s/%s failed: %s", pod.Namespace, pod.Name, err)
+		}
+	}
+
+	if !isLeaderEvictionFinished(tc, pod) {
+		return fmt.Errorf("wait for leader eviction of %s/%s finished", pod.Namespace, pod.Name)
+	}
+
+	if ensureTiKVLeaderEvictionCondition(tc, metav1.ConditionFalse) {
+		// return to sync tc
+		return fmt.Errorf("try to stop evicting leader of pod %s/%s", pod.Namespace, pod.Name)
 	}
 
 	return nil
