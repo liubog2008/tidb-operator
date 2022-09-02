@@ -77,9 +77,6 @@ func (p *pvcModifier) Sync(tc *v1alpha1.TidbCluster) error {
 			continue
 		}
 
-		observedStatus := observeVolumeStatus(p.pm, ctx.pods, ctx.desiredVolumes)
-		updateVolumeStatus(ctx.status, observedStatus)
-
 		err = p.modifyVolumes(ctx)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("modify volumes for %s failed: %w", ctx.ComponentID(), err))
