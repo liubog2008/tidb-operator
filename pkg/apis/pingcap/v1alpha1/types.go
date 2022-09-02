@@ -414,7 +414,6 @@ const (
 const (
 	// ComponentVolumeResizing indicates that any volume of this component is resizing.
 	ComponentVolumeResizing string = "ComponentVolumeResizing"
-	ComponentVolumeSynced   string = "ComponentVolumeSynced"
 )
 
 // +k8s:openapi-gen=true
@@ -1316,6 +1315,14 @@ type EvictLeaderStatus struct {
 	BeginTime     metav1.Time `json:"beginTime,omitempty"`
 	Value         string      `json:"value,omitempty"`
 }
+
+const (
+	// It means whether some pods are evicting leader
+	// This condition is used to avoid too many pods evict leader at same time
+	// Normally we only allow one pod evicts leader.
+	// TODO: set this condition before all leader eviction behavior
+	ConditionTypeLeaderEvicting = "LeaderEvicting"
+)
 
 // TiKVStatus is TiKV status
 type TiKVStatus struct {

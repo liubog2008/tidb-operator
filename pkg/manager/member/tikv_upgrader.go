@@ -384,6 +384,9 @@ func isTiKVReadyToUpgrade(tc *v1alpha1.TidbCluster) (bool, string) {
 	if tc.TiKVScaling() {
 		return false, fmt.Sprintf("tikv status is %s", tc.Status.TiKV.Phase)
 	}
+	if tc.IsComponentLeaderEvicting(v1alpha1.TiKVMemberType) {
+		return false, "tikv leader is evicting"
+	}
 	if tc.IsComponentVolumeResizing(v1alpha1.TiKVMemberType) {
 		return false, "tikv is resizing volumes"
 	}
