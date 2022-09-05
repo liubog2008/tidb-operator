@@ -1,6 +1,7 @@
 package volumes
 
 import (
+	"fmt"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -28,6 +29,8 @@ const (
 	// 2. needModify: false
 	// 3. waitForNextTime: true/false
 	VolumePhaseModified
+
+	VolumePhaseCannotModify
 )
 
 func (p VolumePhase) String() string {
@@ -40,12 +43,18 @@ func (p VolumePhase) String() string {
 		return "Modifying"
 	case VolumePhaseModified:
 		return "Modified"
+	case VolumePhaseCannotModify:
+		return "CannotModify"
 	}
 
 	return "Unknown"
 }
 
 func (p *podVolModifier) getVolumePhase(vol *ActualVolume) VolumePhase {
+	if err := p.validate(vol); err != nil {
+		klog.Warningf("volume %s/%s modification is not allowed: %v", vol.PVC.Namespace, vol.PVC.Name, err)
+		return VolumePhaseCannotModify
+	}
 	if isPVCRevisionChanged(vol.PVC) {
 		return VolumePhaseModifying
 	}
@@ -59,6 +68,39 @@ func (p *podVolModifier) getVolumePhase(vol *ActualVolume) VolumePhase {
 	}
 
 	return VolumePhasePreparing
+}
+
+func isVolumeExpansionSupported(sc *storagev1.StorageClass) bool {
+	if sc.AllowVolumeExpansion == nil {
+		return false
+	}
+	return *sc.AllowVolumeExpansion
+}
+
+func (p *podVolModifier) validate(vol *ActualVolume) error {
+	if vol.StorageClass == nil {
+		return fmt.Errorf("storage class is not set")
+	}
+	desired := vol.Desired.GetStorageSize()
+	actual := vol.GetStorageSize()
+	result := desired.Cmp(actual)
+	switch {
+	case result == 0:
+	case result < 0:
+		return fmt.Errorf("can't shrunk size from %s to %s", &actual, &desired)
+	case result > 0:
+		if isVolumeExpansionSupported(vol.StorageClass) {
+			return fmt.Errorf("volume expansion is not supported by storageclass %s", vol.StorageClass.Name)
+		}
+	}
+	m := p.getVolumeModifier(vol.Desired.StorageClass)
+	if m == nil {
+		return nil
+	}
+	desiredPVC := vol.PVC.DeepCopy()
+	desiredPVC.Spec.Resources.Requests[corev1.ResourceStorage] = desired
+
+	return m.Validate(vol.PVC, desiredPVC, vol.StorageClass, vol.Desired.StorageClass)
 }
 
 func isPVCRevisionChanged(pvc *corev1.PersistentVolumeClaim) bool {

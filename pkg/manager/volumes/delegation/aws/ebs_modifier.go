@@ -62,7 +62,16 @@ func NewEBSModifier(cfg aws.Config) delegation.VolumeModifier {
 }
 
 func (m *EBSModifier) Name() string {
-	return "aws"
+	return "ebs.csi.aws.com"
+}
+
+// TODO: add more validation to avoid call aws api too frequent
+func (m *EBSModifier) Validate(spvc, dpvc *corev1.PersistentVolumeClaim, ssc, dsc *storagev1.StorageClass) error {
+	if ssc.Provisioner != dsc.Provisioner {
+		return fmt.Errorf("provisioner should not be changed, now from %s to %s", ssc.Provisioner, dsc.Provisioner)
+	}
+
+	return nil
 }
 
 func (m *EBSModifier) ModifyVolume(ctx context.Context, pvc *corev1.PersistentVolumeClaim, pv *corev1.PersistentVolume, sc *storagev1.StorageClass) ( /*wait*/ bool, error) {
@@ -198,16 +207,23 @@ func (m *EBSModifier) MinWaitDuration() time.Duration {
 }
 
 func (m *EBSModifier) setArgsFromPVC(v *Volume, pvc *corev1.PersistentVolumeClaim) error {
+	size, err := getSizeFromPVC(pvc)
+	if err != nil {
+		return err
+	}
+	v.Size = pointer.Int32Ptr(int32(size))
+	return nil
+}
+
+func getSizeFromPVC(pvc *corev1.PersistentVolumeClaim) (int64, error) {
 	quantity := pvc.Spec.Resources.Requests[corev1.ResourceStorage]
 	sizeBytes := quantity.ScaledValue(0)
 	size := sizeBytes / 1024 / 1024 / 1024
 
 	if size < minSize || size > maxSize {
-		return fmt.Errorf("invalid storage size: %v", quantity)
+		return 0, fmt.Errorf("invalid storage size: %v", quantity)
 	}
-
-	v.Size = pointer.Int32Ptr(int32(size))
-	return nil
+	return size, nil
 }
 
 func (m *EBSModifier) setArgsFromPV(v *Volume, pv *corev1.PersistentVolume) error {
