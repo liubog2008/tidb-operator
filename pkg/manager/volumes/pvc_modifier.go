@@ -328,7 +328,7 @@ func isLeaderEvicting(pod *corev1.Pod) bool {
 func (p *pvcModifier) evictLeader(tc *v1alpha1.TidbCluster, pod *corev1.Pod) error {
 	if ensureTiKVLeaderEvictionCondition(tc, metav1.ConditionTrue) {
 		// return to sync tc
-		return fmt.Errorf("try to evict leader for pod %s", pod.Namespace, pod.Name)
+		return fmt.Errorf("try to evict leader for pod %s/%s", pod.Namespace, pod.Name)
 	}
 	if isLeaderEvicting(pod) {
 		return nil
