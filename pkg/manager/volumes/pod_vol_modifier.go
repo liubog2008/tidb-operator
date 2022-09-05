@@ -48,10 +48,11 @@ func (v *DesiredVolume) GetStorageSize() resource.Quantity {
 }
 
 type ActualVolume struct {
-	Desired *DesiredVolume
-	PVC     *corev1.PersistentVolumeClaim
-	PV      *corev1.PersistentVolume
-	Phase   VolumePhase
+	Desired      *DesiredVolume
+	PVC          *corev1.PersistentVolumeClaim
+	PV           *corev1.PersistentVolume
+	StorageClass *storagev1.StorageClass
+	Phase        VolumePhase
 }
 
 func (v *ActualVolume) GetStorageClassName() string {
@@ -136,7 +137,7 @@ func (p *podVolModifier) Modify(actual []ActualVolume) error {
 			if err := p.modifyPVCAnnoStatus(ctx, vol); err != nil {
 				errs = append(errs, err)
 			}
-		case VolumePhasePending, VolumePhaseModified:
+		case VolumePhasePending, VolumePhaseModified, VolumePhaseCannotModify:
 		}
 
 	}
@@ -262,10 +263,26 @@ func getDesiredVolumeByName(vs []DesiredVolume, name string) *DesiredVolume {
 
 	return nil
 }
+
 func (p *podVolModifier) getBoundPVFromPVC(pvc *corev1.PersistentVolumeClaim) (*corev1.PersistentVolume, error) {
 	name := pvc.Spec.VolumeName
 
 	return p.deps.PVLister.Get(name)
+}
+
+func (p *podVolModifier) getStorageClassFromPVC(pvc *corev1.PersistentVolumeClaim) (*storagev1.StorageClass, error) {
+	sc := ignoreNil(pvc.Spec.StorageClassName)
+
+	scAnno, ok := pvc.Annotations[annoKeyPVCStatusStorageClass]
+	if ok {
+		sc = scAnno
+	}
+
+	if sc == "" {
+		return nil, nil
+	}
+
+	return p.deps.StorageClassLister.Get(sc)
 }
 
 func (p *podVolModifier) getPVC(ns string, vol *corev1.Volume) (*corev1.PersistentVolumeClaim, error) {
@@ -315,12 +332,18 @@ func (p *podVolModifier) NewActualVolumeOfPod(vs []DesiredVolume, ns string, vol
 		return nil, err
 	}
 
+	sc, err := p.getStorageClassFromPVC(pvc)
+	if err != nil {
+		return nil, err
+	}
+
 	desired := getDesiredVolumeByName(vs, vol.Name)
 
 	actual := ActualVolume{
-		Desired: desired,
-		PVC:     pvc,
-		PV:      pv,
+		Desired:      desired,
+		PVC:          pvc,
+		PV:           pv,
+		StorageClass: sc,
 	}
 
 	phase := p.getVolumePhase(&actual)
