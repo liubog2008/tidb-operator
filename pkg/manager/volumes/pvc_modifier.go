@@ -251,6 +251,10 @@ func (p *pvcModifier) tryToModifyPVC(ctx *componentVolumeContext) error {
 			// try to evict leader if need to modify
 			isEvicted := isLeaderEvictedOrTimeout(ctx.tc, pod)
 			if !isEvicted {
+				if ensureTiKVLeaderEvictionCondition(ctx.tc, metav1.ConditionTrue) {
+					// return to sync tc
+					return fmt.Errorf("try to evict leader for tidbcluster %s/%s", ctx.tc.Namespace, ctx.tc.Name)
+				}
 				if err := p.evictLeader(ctx.tc, pod); err != nil {
 					return err
 				}
@@ -265,6 +269,13 @@ func (p *pvcModifier) tryToModifyPVC(ctx *componentVolumeContext) error {
 
 		if err := p.pm.Modify(actual); err != nil {
 			return err
+		}
+	}
+
+	if ctx.shouldEvict {
+		if ensureTiKVLeaderEvictionCondition(ctx.tc, metav1.ConditionFalse) {
+			// return to sync tc
+			return fmt.Errorf("try to stop evicting leader for tidbcluster %s/%s", ctx.tc.Namespace, ctx.tc.Name)
 		}
 	}
 
@@ -326,10 +337,6 @@ func isLeaderEvicting(pod *corev1.Pod) bool {
 }
 
 func (p *pvcModifier) evictLeader(tc *v1alpha1.TidbCluster, pod *corev1.Pod) error {
-	if ensureTiKVLeaderEvictionCondition(tc, metav1.ConditionTrue) {
-		// return to sync tc
-		return fmt.Errorf("try to evict leader for pod %s/%s", pod.Namespace, pod.Name)
-	}
 	if isLeaderEvicting(pod) {
 		return nil
 	}
@@ -359,11 +366,6 @@ func (p *pvcModifier) endEvictLeader(tc *v1alpha1.TidbCluster, pod *corev1.Pod) 
 
 	if !isLeaderEvictionFinished(tc, pod) {
 		return fmt.Errorf("wait for leader eviction of %s/%s finished", pod.Namespace, pod.Name)
-	}
-
-	if ensureTiKVLeaderEvictionCondition(tc, metav1.ConditionFalse) {
-		// return to sync tc
-		return fmt.Errorf("try to stop evicting leader of pod %s/%s", pod.Namespace, pod.Name)
 	}
 
 	return nil
