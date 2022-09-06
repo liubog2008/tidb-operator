@@ -89,7 +89,7 @@ func (p *podVolModifier) validate(vol *ActualVolume) error {
 	case result < 0:
 		return fmt.Errorf("can't shrunk size from %s to %s", &actual, &desired)
 	case result > 0:
-		if isVolumeExpansionSupported(vol.StorageClass) {
+		if !isVolumeExpansionSupported(vol.StorageClass) {
 			return fmt.Errorf("volume expansion is not supported by storageclass %s", vol.StorageClass.Name)
 		}
 	}
