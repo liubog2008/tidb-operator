@@ -212,7 +212,7 @@ func TestObserveVolumeStatus(t *testing.T) {
 			g := NewGomegaWithT(t)
 			pvm := &FakePodVolumeModifier{}
 			pods, desiredVolumes := c.input(pvm)
-			observedStatus := ObserveVolumeStatus(pvm, pods, desiredVolumes)
+			observedStatus := observeVolumeStatus(pvm, pods, desiredVolumes)
 			c.expect(g, observedStatus)
 		})
 	}

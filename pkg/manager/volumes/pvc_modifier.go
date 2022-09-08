@@ -71,6 +71,11 @@ func (p *pvcModifier) Sync(tc *v1alpha1.TidbCluster) error {
 	errs := []error{}
 
 	for _, comp := range components {
+		if comp.MemberType() == v1alpha1.TiKVMemberType && tc.Status.TiKV.Phase == v1alpha1.UpgradePhase {
+			klog.Infof("skip to modify volumes for cluster %s/%s because cluster is upgrading", tc.Namespace, tc.Name)
+			continue
+		}
+
 		ctx, err := p.buildContextForTC(tc, comp)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("build ctx used by modifier for %s failed: %w", ctx.ComponentID(), err))
