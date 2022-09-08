@@ -6,6 +6,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	klog "k8s.io/klog/v2"
 )
 
@@ -146,8 +147,7 @@ func needModify(pvc *corev1.PersistentVolumeClaim, desired *DesiredVolume) bool 
 	return isPVCStatusMatched(pvc, scName, size)
 }
 
-// TODO(shiori): use actual volume to get sc and size
-func isPVCStatusMatched(pvc *corev1.PersistentVolumeClaim, scName, size string) bool {
+func isPVCStatusMatched(pvc *corev1.PersistentVolumeClaim, scName string, size resource.Quantity) bool {
 	isChanged := false
 	oldSc, ok := pvc.Annotations[annoKeyPVCStatusStorageClass]
 	if !ok {
@@ -162,7 +162,7 @@ func isPVCStatusMatched(pvc *corev1.PersistentVolumeClaim, scName, size string) 
 		quantity := getStorageSize(pvc.Spec.Resources.Requests)
 		oldSize = quantity.String()
 	}
-	if oldSize != size {
+	if oldSize != size.String() {
 		isChanged = true
 	}
 	if isChanged {

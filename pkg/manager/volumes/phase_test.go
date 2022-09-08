@@ -157,7 +157,7 @@ func TestGetVolumePhase(t *testing.T) {
 			PVC: c.pvc,
 			Desired: &DesiredVolume{
 				StorageClass: c.sc,
-				Size:         c.size,
+				Size:         resource.MustParse(c.size),
 			},
 		}
 		phase := pvm.getVolumePhase(&actual)

@@ -49,12 +49,12 @@ func TestObserveVolumeStatus(t *testing.T) {
 				desiredVolumes := []DesiredVolume{
 					{
 						Name:         "vol1",
-						Size:         desiredSize,
+						Size:         resource.MustParse(desiredSize),
 						StorageClass: newStorageClass(desiredSC, true),
 					},
 					{
 						Name:         "vol2",
-						Size:         desiredSize,
+						Size:         resource.MustParse(desiredSize),
 						StorageClass: newStorageClass(desiredSC, true),
 					},
 				}
@@ -111,17 +111,17 @@ func TestObserveVolumeStatus(t *testing.T) {
 				desiredVolumes := []DesiredVolume{
 					{
 						Name:         "vol1",
-						Size:         desiredSize,
+						Size:         resource.MustParse(desiredSize),
 						StorageClass: newStorageClass(desiredSC, true),
 					},
 					{
 						Name:         "vol2",
-						Size:         desiredSize,
+						Size:         resource.MustParse(desiredSize),
 						StorageClass: newStorageClass(desiredSC, true),
 					},
 					{
 						Name:         "vol3",
-						Size:         desiredSize,
+						Size:         resource.MustParse(desiredSize),
 						StorageClass: newStorageClass(desiredSC, true),
 					},
 				}
