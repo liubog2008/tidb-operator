@@ -774,7 +774,9 @@ func (m *tikvMemberManager) syncTiKVClusterStatus(tc *v1alpha1.TidbCluster, set 
 	if tc.TiKVStsDesiredReplicas() != *set.Spec.Replicas {
 		tc.Status.TiKV.Phase = v1alpha1.ScalePhase
 	} else if upgrading && tc.Status.PD.Phase != v1alpha1.UpgradePhase {
-		tc.Status.TiKV.Phase = v1alpha1.UpgradePhase
+		if !tc.IsComponentLeaderEvicting(v1alpha1.TiKVMemberType) { // skip upgrade if someone is evicting leader
+			tc.Status.TiKV.Phase = v1alpha1.UpgradePhase
+		}
 	} else {
 		tc.Status.TiKV.Phase = v1alpha1.NormalPhase
 	}
