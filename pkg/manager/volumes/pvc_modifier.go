@@ -101,10 +101,6 @@ func ignoreNil(s *string) string {
 	return *s
 }
 
-func getTcKey(tc *v1alpha1.TidbCluster) string {
-	return fmt.Sprintf("%s/%s", tc.GetNamespace(), tc.GetName())
-}
-
 func (p *pvcModifier) buildContextForTC(tc *v1alpha1.TidbCluster, status v1alpha1.ComponentStatus) (*componentVolumeContext, error) {
 	comp := status.MemberType()
 
@@ -194,14 +190,14 @@ func (p *pvcModifier) modifyVolumes(ctx *componentVolumeContext) error {
 
 func (p *pvcModifier) isStatefulSetSynced(ctx *componentVolumeContext, sts *appsv1.StatefulSet) (bool, error) {
 	for _, volTemplate := range sts.Spec.VolumeClaimTemplates {
-		volName := volTemplate.Name
+		volName := v1alpha1.StorageVolumeName(volTemplate.Name)
 		size := getStorageSize(volTemplate.Spec.Resources.Requests)
 		desired := getDesiredVolumeByName(ctx.desiredVolumes, volName)
 		if desired == nil {
 			klog.Warningf("volume %s in sts for cluster %s dose not exist in desired volumes", volName, ctx.ComponentID())
 			continue
 		}
-		if desired.Size != size.String() {
+		if size.Cmp(desired.Size) == 0 {
 			return false, nil
 		}
 		scName := volTemplate.Spec.StorageClassName

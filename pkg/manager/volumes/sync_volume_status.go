@@ -82,8 +82,7 @@ func observeVolumeStatus(pvm PodVolumeModifier, pods []*v1.Pod, desiredVolumes [
 		}
 
 		for _, volume := range actualVolumes {
-			// TODO(shiori): not convert
-			volName := v1alpha1.StorageVolumeName(volume.Desired.Name)
+			volName := volume.Desired.Name
 			desiredCap := volume.Desired.GetStorageSize()
 			actualCap := volume.GetStorageSize()
 			desiredSC := volume.Desired.GetStorageClassName()

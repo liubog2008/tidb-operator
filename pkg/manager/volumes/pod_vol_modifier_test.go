@@ -192,7 +192,7 @@ func TestModify(t *testing.T) {
 		actual := ActualVolume{
 			Desired: &DesiredVolume{
 				Name:         "test",
-				Size:         c.size,
+				Size:         resource.MustParse(c.size),
 				StorageClass: c.sc,
 			},
 			PVC: c.pvc,
