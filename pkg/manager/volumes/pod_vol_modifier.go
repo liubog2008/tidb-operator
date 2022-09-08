@@ -29,12 +29,11 @@ type PodVolumeModifier interface {
 }
 
 type DesiredVolume struct {
-	Name         string
-	Size         string
+	Name         v1alpha1.StorageVolumeName
+	Size         resource.Quantity
 	StorageClass *storagev1.StorageClass
 }
 
-// TODO(shiori): maybe use sc as string
 func (v *DesiredVolume) GetStorageClassName() string {
 	if v.StorageClass == nil {
 		return ""
@@ -42,9 +41,8 @@ func (v *DesiredVolume) GetStorageClassName() string {
 	return v.StorageClass.Name
 }
 
-// TODO(shiori): change Size to resource.Quantity and do not use `resource.MustParse`
 func (v *DesiredVolume) GetStorageSize() resource.Quantity {
-	return resource.MustParse(v.Size)
+	return v.Size
 }
 
 type ActualVolume struct {
@@ -157,11 +155,9 @@ func (p *podVolModifier) GetDesiredVolumes(tc *v1alpha1.TidbCluster, mt v1alpha1
 		if err != nil {
 			return nil, err
 		}
-		name := v1alpha1.GetStorageVolumeName("", mt)
-		size := getStorageSize(tc.Spec.PD.Requests)
 		d := DesiredVolume{
-			Name:         string(name),
-			Size:         size.String(),
+			Name:         v1alpha1.GetStorageVolumeName("", mt),
+			Size:         getStorageSize(tc.Spec.PD.Requests),
 			StorageClass: sc,
 		}
 		desiredVolumes = append(desiredVolumes, d)
@@ -176,11 +172,9 @@ func (p *podVolModifier) GetDesiredVolumes(tc *v1alpha1.TidbCluster, mt v1alpha1
 		if err != nil {
 			return nil, err
 		}
-		name := v1alpha1.GetStorageVolumeName("", mt)
-		size := getStorageSize(tc.Spec.TiKV.Requests)
 		d := DesiredVolume{
-			Name:         string(name),
-			Size:         size.String(),
+			Name:         v1alpha1.GetStorageVolumeName("", mt),
+			Size:         getStorageSize(tc.Spec.TiKV.Requests),
 			StorageClass: sc,
 		}
 		desiredVolumes = append(desiredVolumes, d)
@@ -193,11 +187,9 @@ func (p *podVolModifier) GetDesiredVolumes(tc *v1alpha1.TidbCluster, mt v1alpha1
 			if err != nil {
 				return nil, err
 			}
-			name := v1alpha1.GetStorageVolumeNameForTiFlash(i)
-			size := getStorageSize(claim.Resources.Requests)
 			d := DesiredVolume{
-				Name:         string(name),
-				Size:         size.String(),
+				Name:         v1alpha1.GetStorageVolumeNameForTiFlash(i),
+				Size:         getStorageSize(claim.Resources.Requests),
 				StorageClass: sc,
 			}
 			desiredVolumes = append(desiredVolumes, d)
@@ -211,11 +203,9 @@ func (p *podVolModifier) GetDesiredVolumes(tc *v1alpha1.TidbCluster, mt v1alpha1
 		if err != nil {
 			return nil, err
 		}
-		name := v1alpha1.GetStorageVolumeName("", mt)
-		size := getStorageSize(tc.Spec.Pump.Requests)
 		d := DesiredVolume{
-			Name:         string(name),
-			Size:         size.String(),
+			Name:         v1alpha1.GetStorageVolumeName("", mt),
+			Size:         getStorageSize(tc.Spec.Pump.Requests),
 			StorageClass: sc,
 		}
 		desiredVolumes = append(desiredVolumes, d)
@@ -229,17 +219,16 @@ func (p *podVolModifier) GetDesiredVolumes(tc *v1alpha1.TidbCluster, mt v1alpha1
 			if err != nil {
 				return nil, err
 			}
-			name := v1alpha1.GetStorageVolumeName(sv.Name, mt)
 			d := DesiredVolume{
-				Name:         string(name),
-				Size:         quantity.String(),
+				Name:         v1alpha1.GetStorageVolumeName(sv.Name, mt),
+				Size:         quantity,
 				StorageClass: sc,
 			}
 
 			desiredVolumes = append(desiredVolumes, d)
 
 		} else {
-			klog.Warningf("StorageVolume %q in %s .spec.%s is invalid", sv.Name, getTcKey(tc), mt)
+			klog.Warningf("StorageVolume %q in %s/%s .spec.%s is invalid", sv.Name, tc.GetNamespace(), tc.GetName(), mt)
 		}
 	}
 
@@ -253,7 +242,7 @@ func getStorageClass(name *string, scLister storagelister.StorageClassLister) (*
 	return scLister.Get(*name)
 }
 
-func getDesiredVolumeByName(vs []DesiredVolume, name string) *DesiredVolume {
+func getDesiredVolumeByName(vs []DesiredVolume, name v1alpha1.StorageVolumeName) *DesiredVolume {
 	for i := range vs {
 		v := &vs[i]
 		if v.Name == name {
@@ -337,7 +326,7 @@ func (p *podVolModifier) NewActualVolumeOfPod(vs []DesiredVolume, ns string, vol
 		return nil, err
 	}
 
-	desired := getDesiredVolumeByName(vs, vol.Name)
+	desired := getDesiredVolumeByName(vs, v1alpha1.StorageVolumeName(vol.Name))
 
 	actual := ActualVolume{
 		Desired:      desired,
@@ -371,7 +360,7 @@ func upgradeRevision(pvc *corev1.PersistentVolumeClaim) {
 	pvc.Annotations[annoKeyPVCSpecRevision] = strconv.Itoa(rev)
 }
 
-func isPVCSpecMatched(pvc *corev1.PersistentVolumeClaim, scName, size string) bool {
+func isPVCSpecMatched(pvc *corev1.PersistentVolumeClaim, scName string, size resource.Quantity) bool {
 	isChanged := false
 	oldSc := pvc.Annotations[annoKeyPVCSpecStorageClass]
 	if oldSc != scName {
@@ -383,14 +372,14 @@ func isPVCSpecMatched(pvc *corev1.PersistentVolumeClaim, scName, size string) bo
 		quantity := getStorageSize(pvc.Spec.Resources.Requests)
 		oldSize = quantity.String()
 	}
-	if oldSize != size {
+	if oldSize != size.String() {
 		isChanged = true
 	}
 
 	return isChanged
 }
 
-func snapshotStorageClassAndSize(pvc *corev1.PersistentVolumeClaim, scName, size string) bool {
+func snapshotStorageClassAndSize(pvc *corev1.PersistentVolumeClaim, scName string, size resource.Quantity) bool {
 	isChanged := isPVCSpecMatched(pvc, scName, size)
 
 	if pvc.Annotations == nil {
@@ -398,7 +387,7 @@ func snapshotStorageClassAndSize(pvc *corev1.PersistentVolumeClaim, scName, size
 	}
 
 	pvc.Annotations[annoKeyPVCSpecStorageClass] = scName
-	pvc.Annotations[annoKeyPVCSpecStorageSize] = size
+	pvc.Annotations[annoKeyPVCSpecStorageSize] = size.String()
 
 	return isChanged
 }
@@ -457,20 +446,17 @@ func (p *podVolModifier) modifyPVCAnnoSpec(ctx context.Context, vol *ActualVolum
 func (p *podVolModifier) syncPVCSize(ctx context.Context, vol *ActualVolume) (bool, error) {
 	capacity := vol.PVC.Status.Capacity.Storage()
 	requestSize := vol.PVC.Spec.Resources.Requests.Storage()
-	if requestSize.String() == vol.Desired.Size && capacity.String() == vol.Desired.Size {
+	if requestSize.Cmp(vol.Desired.Size) == 0 && capacity.Cmp(vol.Desired.Size) == 0 {
 		return true, nil
+
 	}
-	if requestSize.String() == vol.Desired.Size {
+
+	if requestSize.Cmp(vol.Desired.Size) == 0 {
 		return false, nil
 	}
 
 	pvc := vol.PVC.DeepCopy()
-	q, err := resource.ParseQuantity(vol.Desired.Size)
-	if err != nil {
-		return false, err
-	}
-	pvc.Spec.Resources.Requests[corev1.ResourceStorage] = q
-
+	pvc.Spec.Resources.Requests[corev1.ResourceStorage] = vol.Desired.Size
 	updated, err := p.deps.KubeClientset.CoreV1().PersistentVolumeClaims(pvc.Namespace).Update(ctx, pvc, metav1.UpdateOptions{})
 	if err != nil {
 		return false, err
@@ -509,12 +495,8 @@ func (p *podVolModifier) modifyVolume(ctx context.Context, vol *ActualVolume) (b
 		return false, nil
 	}
 
-	q, err := resource.ParseQuantity(vol.Desired.Size)
-	if err != nil {
-		return false, err
-	}
 	pvc := vol.PVC.DeepCopy()
-	pvc.Spec.Resources.Requests[corev1.ResourceStorage] = q
+	pvc.Spec.Resources.Requests[corev1.ResourceStorage] = vol.Desired.Size
 
 	return m.ModifyVolume(ctx, pvc, vol.PV, vol.Desired.StorageClass)
 }
