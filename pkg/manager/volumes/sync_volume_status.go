@@ -23,6 +23,7 @@ import (
 	"k8s.io/klog/v2"
 )
 
+// SyncVolumeStatus lists all pods and pvc for the given component and set the volume status of tc.
 func SyncVolumeStatus(pvm PodVolumeModifier, podLister corelisterv1.PodLister, tc *v1alpha1.TidbCluster, mt v1alpha1.MemberType) error {
 	status := tc.ComponentStatus(mt)
 	if status == nil {

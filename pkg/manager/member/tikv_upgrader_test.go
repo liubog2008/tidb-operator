@@ -22,6 +22,7 @@ import (
 	"github.com/pingcap/tidb-operator/pkg/apis/label"
 	"github.com/pingcap/tidb-operator/pkg/apis/pingcap/v1alpha1"
 	"github.com/pingcap/tidb-operator/pkg/controller"
+	"github.com/pingcap/tidb-operator/pkg/features"
 	mngerutils "github.com/pingcap/tidb-operator/pkg/manager/utils"
 	"github.com/pingcap/tidb-operator/pkg/manager/volumes"
 	"github.com/pingcap/tidb-operator/pkg/pdapi"
@@ -728,6 +729,7 @@ func TestTiKVUpgraderUpgrade(t *testing.T) {
 				tc.Status.TiKV.Synced = true
 				tc.Status.TiKV.StatefulSet.CurrentReplicas = 2
 				tc.Status.TiKV.StatefulSet.UpdatedReplicas = 1
+				features.DefaultFeatureGate.Set(fmt.Sprintf("%s=true", features.VolumeModifying))
 			},
 			changeOldSet: func(oldSet *apps.StatefulSet) {
 				mngerutils.SetStatefulSetLastAppliedConfigAnnotation(oldSet)
@@ -764,6 +766,7 @@ func TestTiKVUpgraderUpgrade(t *testing.T) {
 				tc.Status.TiKV.Synced = true
 				tc.Status.TiKV.StatefulSet.CurrentReplicas = 2
 				tc.Status.TiKV.StatefulSet.UpdatedReplicas = 1
+				features.DefaultFeatureGate.Set(fmt.Sprintf("%s=true", features.VolumeModifying))
 			},
 			changeOldSet: func(oldSet *apps.StatefulSet) {
 				mngerutils.SetStatefulSetLastAppliedConfigAnnotation(oldSet)
