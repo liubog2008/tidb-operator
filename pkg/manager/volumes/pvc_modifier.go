@@ -6,6 +6,7 @@ import (
 	"sort"
 	"time"
 
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -16,6 +17,7 @@ import (
 
 	"github.com/pingcap/tidb-operator/pkg/apis/pingcap/v1alpha1"
 	"github.com/pingcap/tidb-operator/pkg/controller"
+	"github.com/pingcap/tidb-operator/pkg/manager/utils"
 )
 
 const (
@@ -58,6 +60,7 @@ type componentVolumeContext struct {
 	shouldEvict bool
 
 	pods []*corev1.Pod
+	sts  *appsv1.StatefulSet
 
 	desiredVolumes []DesiredVolume
 }
@@ -122,12 +125,18 @@ func (p *pvcModifier) buildContextForTC(tc *v1alpha1.TidbCluster, status v1alpha
 	}
 	ctx.desiredVolumes = vs
 
+	sts, err := p.getStsOfComponent(tc, comp)
+	if err != nil {
+		return nil, err
+	}
+
 	pods, err := p.getPodsOfComponent(tc, comp)
 	if err != nil {
 		return nil, err
 	}
 
 	ctx.pods = pods
+	ctx.sts = sts
 	ctx.shouldEvict = comp == v1alpha1.TiKVMemberType
 
 	return ctx, nil
@@ -157,7 +166,26 @@ func (p *pvcModifier) getPodsOfComponent(tc *v1alpha1.TidbCluster, mt v1alpha1.M
 	return pods, nil
 }
 
+func (p *pvcModifier) getStsOfComponent(cluster v1alpha1.Cluster, mt v1alpha1.MemberType) (*appsv1.StatefulSet, error) {
+	ns := cluster.GetNamespace()
+	stsName := controller.MemberName(cluster.GetName(), mt)
+
+	sts, err := p.deps.StatefulSetLister.StatefulSets(ns).Get(stsName)
+	if err != nil {
+		return nil, fmt.Errorf("get sts %s/%s failed: %w", ns, stsName, err)
+	}
+
+	return sts, nil
+}
+
 func (p *pvcModifier) modifyVolumes(ctx *componentVolumeContext) error {
+	if ctx.status.GetPhase() == v1alpha1.UpgradePhase {
+		return fmt.Errorf("component phase is Upgrade")
+	}
+	if utils.StatefulSetIsUpgrading(ctx.sts) {
+		return fmt.Errorf("component sts %s/%s is upgrading", ctx.sts.Name, ctx.sts.Namespace)
+	}
+
 	if err := p.tryToRecreateSTS(ctx); err != nil {
 		return err
 	}
@@ -169,13 +197,7 @@ func (p *pvcModifier) modifyVolumes(ctx *componentVolumeContext) error {
 	return nil
 }
 
-func (p *pvcModifier) isStatefulSetSynced(ctx *componentVolumeContext, ns, name string) (bool, error) {
-	sts, err := p.deps.StatefulSetLister.StatefulSets(ns).Get(name)
-	if err != nil {
-		klog.Warningf("skip to resize sts %s for component %s because %v", name, ctx.ComponentID(), err)
-		return false, err
-	}
-
+func (p *pvcModifier) isStatefulSetSynced(ctx *componentVolumeContext, sts *appsv1.StatefulSet) (bool, error) {
 	for _, volTemplate := range sts.Spec.VolumeClaimTemplates {
 		volName := volTemplate.Name
 		size := getStorageSize(volTemplate.Spec.Resources.Requests)
@@ -208,10 +230,10 @@ func isStorageClassMatched(sc *storagev1.StorageClass, scName string) bool {
 }
 
 func (p *pvcModifier) tryToRecreateSTS(ctx *componentVolumeContext) error {
-	ns := ctx.tc.GetNamespace()
-	name := controller.MemberName(ctx.tc.GetName(), ctx.status.MemberType())
+	ns := ctx.sts.Namespace
+	name := ctx.sts.Name
 
-	isSynced, err := p.isStatefulSetSynced(ctx, ns, name)
+	isSynced, err := p.isStatefulSetSynced(ctx, ctx.sts)
 	if err != nil {
 		return err
 	}
