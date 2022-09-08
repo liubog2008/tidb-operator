@@ -123,11 +123,17 @@ func (p *podVolModifier) waitForNextTime(pvc *corev1.PersistentVolumeClaim, sc *
 
 	m := p.getVolumeModifier(sc)
 
-	if m == nil {
-		return d < defaultModifyWaitingDuration
+	waitDur := defaultModifyWaitingDuration
+	if m != nil {
+		waitDur = m.MinWaitDuration()
 	}
 
-	return d < m.MinWaitDuration()
+	if d < waitDur {
+		klog.Warningf("volume %s/%s modification is pending, should wait %v", pvc.Namespace, pvc.Name, waitDur-d)
+		return true
+	}
+
+	return false
 }
 
 func needModify(pvc *corev1.PersistentVolumeClaim, desired *DesiredVolume) bool {
@@ -159,7 +165,9 @@ func isPVCStatusMatched(pvc *corev1.PersistentVolumeClaim, scName, size string) 
 	if oldSize != size {
 		isChanged = true
 	}
-	klog.Infof("old sc %s vs new sc %v, old size %v vs new size %v", oldSc, scName, oldSize, size)
+	if isChanged {
+		klog.Infof("volume %s/%s is changed, sc (%s => %s), size (%v => %v)", pvc.Namespace, pvc.Name, oldSc, scName, oldSize, size)
+	}
 
 	return isChanged
 }

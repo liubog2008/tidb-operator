@@ -360,7 +360,7 @@ func (p *pvcModifier) endEvictLeader(tc *v1alpha1.TidbCluster, pod *corev1.Pod) 
 
 		delete(pod.Annotations, v1alpha1.EvictLeaderAnnKeyForResize)
 		if _, err := p.deps.KubeClientset.CoreV1().Pods(pod.Namespace).Update(context.TODO(), pod, metav1.UpdateOptions{}); err != nil {
-			return fmt.Errorf("add leader eviction annotation to pod %s/%s failed: %s", pod.Namespace, pod.Name, err)
+			return fmt.Errorf("delete leader eviction annotation to pod %s/%s failed: %s", pod.Namespace, pod.Name, err)
 		}
 	}
 

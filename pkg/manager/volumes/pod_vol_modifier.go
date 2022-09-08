@@ -524,6 +524,9 @@ func (p *podVolModifier) getVolumeModifier(sc *storagev1.StorageClass) delegatio
 }
 
 func isLeaderEvictedOrTimeout(tc *v1alpha1.TidbCluster, pod *corev1.Pod) bool {
+	if isLeaderEvictionFinished(tc, pod) {
+		return false
+	}
 	for _, store := range tc.Status.TiKV.Stores {
 		if store.PodName == pod.Name {
 			if store.LeaderCount == 0 {
@@ -543,5 +546,5 @@ func isLeaderEvictedOrTimeout(tc *v1alpha1.TidbCluster, pod *corev1.Pod) bool {
 		}
 	}
 
-	return true
+	return false
 }
