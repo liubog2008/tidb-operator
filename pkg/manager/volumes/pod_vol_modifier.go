@@ -149,12 +149,14 @@ func (p *podVolModifier) GetDesiredVolumes(tc *v1alpha1.TidbCluster, mt v1alpha1
 	scLister := p.deps.StorageClassLister
 
 	storageVolumes := []v1alpha1.StorageVolume{}
+	var defaultSc *storagev1.StorageClass
 	switch mt {
 	case v1alpha1.PDMemberType:
 		sc, err := getStorageClass(tc.Spec.PD.StorageClassName, scLister)
 		if err != nil {
 			return nil, err
 		}
+		defaultSc = sc
 		d := DesiredVolume{
 			Name:         v1alpha1.GetStorageVolumeName("", mt),
 			Size:         getStorageSize(tc.Spec.PD.Requests),
@@ -165,6 +167,11 @@ func (p *podVolModifier) GetDesiredVolumes(tc *v1alpha1.TidbCluster, mt v1alpha1
 		storageVolumes = tc.Spec.PD.StorageVolumes
 
 	case v1alpha1.TiDBMemberType:
+		sc, err := getStorageClass(tc.Spec.TiDB.StorageClassName, scLister)
+		if err != nil {
+			return nil, err
+		}
+		defaultSc = sc
 		storageVolumes = tc.Spec.TiDB.StorageVolumes
 
 	case v1alpha1.TiKVMemberType:
@@ -172,6 +179,7 @@ func (p *podVolModifier) GetDesiredVolumes(tc *v1alpha1.TidbCluster, mt v1alpha1
 		if err != nil {
 			return nil, err
 		}
+		defaultSc = sc
 		d := DesiredVolume{
 			Name:         v1alpha1.GetStorageVolumeName("", mt),
 			Size:         getStorageSize(tc.Spec.TiKV.Requests),
@@ -196,6 +204,11 @@ func (p *podVolModifier) GetDesiredVolumes(tc *v1alpha1.TidbCluster, mt v1alpha1
 		}
 
 	case v1alpha1.TiCDCMemberType:
+		sc, err := getStorageClass(tc.Spec.TiCDC.StorageClassName, scLister)
+		if err != nil {
+			return nil, err
+		}
+		defaultSc = sc
 		storageVolumes = tc.Spec.TiCDC.StorageVolumes
 
 	case v1alpha1.PumpMemberType:
@@ -203,6 +216,7 @@ func (p *podVolModifier) GetDesiredVolumes(tc *v1alpha1.TidbCluster, mt v1alpha1
 		if err != nil {
 			return nil, err
 		}
+		defaultSc = sc
 		d := DesiredVolume{
 			Name:         v1alpha1.GetStorageVolumeName("", mt),
 			Size:         getStorageSize(tc.Spec.Pump.Requests),
@@ -218,6 +232,9 @@ func (p *podVolModifier) GetDesiredVolumes(tc *v1alpha1.TidbCluster, mt v1alpha1
 			sc, err := getStorageClass(sv.StorageClassName, scLister)
 			if err != nil {
 				return nil, err
+			}
+			if sc == nil {
+				sc = defaultSc
 			}
 			d := DesiredVolume{
 				Name:         v1alpha1.GetStorageVolumeName(sv.Name, mt),
@@ -398,20 +415,6 @@ func setLastTransitionTimestamp(pvc *corev1.PersistentVolumeClaim) {
 	}
 
 	pvc.Annotations[annoKeyPVCLastTransitionTimestamp] = metav1.Now().Format(time.RFC3339)
-}
-
-func (p *podVolModifier) modifyPVCAnnoSpecLastTransitionTimestamp(ctx context.Context, vol *ActualVolume) error {
-	pvc := vol.PVC.DeepCopy()
-	setLastTransitionTimestamp(pvc)
-	updated, err := p.deps.KubeClientset.CoreV1().PersistentVolumeClaims(pvc.Namespace).Update(ctx, pvc, metav1.UpdateOptions{})
-	if err != nil {
-		return err
-	}
-
-	vol.PVC = updated
-
-	return nil
-
 }
 
 // upgrade revision and snapshot the expected storageclass and size of volume
