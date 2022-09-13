@@ -76,7 +76,7 @@ func (p *pvcModifier) Sync(tc *v1alpha1.TidbCluster) error {
 	for _, comp := range components {
 		ctx, err := p.buildContextForTC(tc, comp)
 		if err != nil {
-			errs = append(errs, fmt.Errorf("build ctx used by modifier for %s failed: %w", ctx.ComponentID(), err))
+			errs = append(errs, fmt.Errorf("build ctx used by modifier for %s/%s:%s failed: %w", tc.Namespace, tc.Name, comp.MemberType(), err))
 			continue
 		}
 
@@ -197,7 +197,7 @@ func (p *pvcModifier) isStatefulSetSynced(ctx *componentVolumeContext, sts *apps
 			klog.Warningf("volume %s in sts for cluster %s dose not exist in desired volumes", volName, ctx.ComponentID())
 			continue
 		}
-		if size.Cmp(desired.Size) == 0 {
+		if size.Cmp(desired.Size) != 0 {
 			return false, nil
 		}
 		scName := volTemplate.Spec.StorageClassName
