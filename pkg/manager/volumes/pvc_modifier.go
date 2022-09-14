@@ -173,9 +173,6 @@ func (p *pvcModifier) modifyVolumes(ctx *componentVolumeContext) error {
 	if ctx.status.GetPhase() == v1alpha1.UpgradePhase {
 		return fmt.Errorf("component phase is Upgrade")
 	}
-	if utils.StatefulSetIsUpgrading(ctx.sts) {
-		return fmt.Errorf("component sts %s/%s is upgrading", ctx.sts.Name, ctx.sts.Namespace)
-	}
 
 	if err := p.tryToRecreateSTS(ctx); err != nil {
 		return err
@@ -230,6 +227,10 @@ func (p *pvcModifier) tryToRecreateSTS(ctx *componentVolumeContext) error {
 	}
 	if isSynced {
 		return nil
+	}
+
+	if utils.StatefulSetIsUpgrading(ctx.sts) {
+		return fmt.Errorf("component sts %s/%s is upgrading", ctx.sts.Name, ctx.sts.Namespace)
 	}
 
 	orphan := metav1.DeletePropagationOrphan
