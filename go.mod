@@ -44,7 +44,7 @@ require (
 	github.com/go-logr/logr v1.4.2
 	github.com/go-sql-driver/mysql v1.8.1
 	github.com/gogo/protobuf v1.3.2
-	github.com/google/gnostic-models v0.6.9
+	github.com/google/gnostic-models v0.7.1
 	github.com/google/go-cmp v0.7.0
 	github.com/minio/minio-go/v6 v6.0.57
 	github.com/mitchellh/mapstructure v1.5.0
@@ -76,6 +76,7 @@ require (
 	github.com/pingcap/failpoint v0.0.0-20240528011301-b51a646c7c86 // indirect
 	github.com/pingcap/log v1.1.1-0.20221110025148-ca232912c9f3 // indirect
 	go.uber.org/atomic v1.10.0 // indirect
+	go.yaml.in/yaml/v3 v3.0.3 // indirect
 	golang.org/x/tools/go/packages/packagestest v0.1.1-deprecated // indirect
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1 // indirect
 )
