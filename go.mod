@@ -35,7 +35,7 @@ require (
 	github.com/agiledragon/gomonkey/v2 v2.13.0
 	github.com/aws/aws-sdk-go-v2/config v1.27.35
 	github.com/aws/aws-sdk-go-v2/service/ec2 v1.177.3
-	github.com/aws/smithy-go v1.20.4
+	github.com/aws/smithy-go v1.23.2
 	github.com/distribution/reference v0.6.0
 	github.com/docker/go-units v0.5.0
 	github.com/dustin/go-humanize v1.0.1
