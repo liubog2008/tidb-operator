@@ -65,7 +65,7 @@ require (
 	github.com/tikv/pd/client v0.0.0-20250917050259-056e04c3e3a3
 	go.etcd.io/etcd/client/v3 v3.5.21
 	go.uber.org/mock v0.6.0
-	go.uber.org/zap v1.27.0
+	go.uber.org/zap v1.27.1
 	google.golang.org/protobuf v1.36.5
 	gopkg.in/yaml.v2 v2.4.0
 	gopkg.in/yaml.v3 v3.0.1
