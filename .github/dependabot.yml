@@ -1,7 +1,10 @@
 version: 2
 updates:
 - package-ecosystem: "gomod"
-  directory: "/"
+  directories:
+  - "api/"
+  - "tests/validation"
+  - "/"
   schedule:
     interval: "daily"
   ignore:

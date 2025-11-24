@@ -1,0 +1,35 @@
+name: Dependabot post updates
+on:
+  pull_request:
+    types: [opened, synchronize]
+
+permissions:
+  contents: write
+  pull-requests: read
+jobs:
+  post:
+    if: ${{ github.actor == 'dependabot[bot]' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fetch Dependabot metadata
+        id: dependabot-metadata
+        uses: dependabot/fetch-metadata@v2
+      - uses: actions/checkout@v4
+        if: ${{ steps.dependabot-metadata.outputs.package-ecosystem == 'gomod' }}
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - uses: actions/setup-go@v6
+        if: ${{ steps.dependabot-metadata.outputs.package-ecosystem == 'gomod' }}
+        with:
+          go-version-file: ./go.work
+          cache-dependency-path: "**/*.sum"
+      - name: go build
+        if: ${{ steps.dependabot-metadata.outputs.package-ecosystem == 'gomod' }}
+        run: |
+          make generate
+          make build
+      - name: git update
+        if: ${{ steps.dependabot-metadata.outputs.package-ecosystem == 'gomod' }}
+        uses: stefanzweifel/git-auto-commit-action@v7
+        with:
+          commit_message: "post update go dependencies"
