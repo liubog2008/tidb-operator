@@ -40,7 +40,7 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
       - name: retrigger workflows
         if: ${{ steps.dependabot-metadata.outputs.package-ecosystem == 'go_modules' }}
-        uses: rhosys/github-action-rebuild-pull-requests@v1.0
-        with:
-          github_token: ${{ github.token }}
+        run: |
+          gh workflow run ci-v2.yaml --ref ${{ github.event.pull_request.head.ref }}
+          gh workflow run auto-job-v2.yaml --ref ${{ github.event.pull_request.head.ref }}
 

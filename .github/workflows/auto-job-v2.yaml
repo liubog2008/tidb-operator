@@ -3,6 +3,7 @@ name: auto-job-v2
 on:
   pull_request_target:
     types: [opened, reopened, synchronize]
+  workflow_dispatch:
 
 permissions:
   contents: read
