@@ -32,6 +32,7 @@ jobs:
       - name: go build
         if: ${{ steps.dependabot-metadata.outputs.package-ecosystem == 'go_modules' }}
         run: |
+          make generate
           make build
       - name: git update
         if: ${{ steps.dependabot-metadata.outputs.package-ecosystem == 'go_modules' }}
@@ -40,4 +41,3 @@ jobs:
           signoff: true
           sign-commits: true
           branch: ${{ github.event.pull_request.head.ref }}
-          # base: ${{ github.event.pull_request.base.ref }}
