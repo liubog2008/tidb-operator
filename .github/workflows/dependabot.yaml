@@ -36,7 +36,11 @@ jobs:
           commit_message: "post update after go dependencies updation"
           repo: ${{ github.repository }}
           branch: ${{ github.head_ref || github.ref_name }}
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
       - name: retrigger workflows
         if: ${{ steps.dependabot-metadata.outputs.package-ecosystem == 'go_modules' }}
         uses: rhosys/github-action-rebuild-pull-requests@v1.0
+        with:
+          github_token: ${{ github.token }}
 
