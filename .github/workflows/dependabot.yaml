@@ -14,11 +14,16 @@ jobs:
       - name: Fetch Dependabot metadata
         id: dependabot-metadata
         uses: dependabot/fetch-metadata@v2
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         if: ${{ steps.dependabot-metadata.outputs.package-ecosystem == 'go_modules' }}
         with:
           ref: ${{ github.event.pull_request.head.ref }}
-          fetch-depth: 2
+      - uses: actions/checkout@v6
+        if: ${{ steps.dependabot-metadata.outputs.package-ecosystem == 'go_modules' }}
+        with:
+          ref: ${{ github.event.pull_request.base.ref }}
+      - if: ${{ steps.dependabot-metadata.outputs.package-ecosystem == 'go_modules' }}
+        run: git reset --hard ${{ github.event.pull_request.head.ref }}
       - uses: actions/setup-go@v6
         if: ${{ steps.dependabot-metadata.outputs.package-ecosystem == 'go_modules' }}
         with:
@@ -35,4 +40,4 @@ jobs:
           signoff: true
           sign-commits: true
           branch: ${{ github.event.pull_request.head.ref }}
-          base: ${{ github.event.pull_request.base.ref }}
+          # base: ${{ github.event.pull_request.base.ref }}
