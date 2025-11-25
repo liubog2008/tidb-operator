@@ -43,4 +43,6 @@ jobs:
         run: |
           gh workflow run ci-v2.yaml --ref ${{ github.event.pull_request.head.ref }}
           gh workflow run auto-job-v2.yaml --ref ${{ github.event.pull_request.head.ref }}
+        env:
+          GH_TOKEN: ${{ github.token }}
 
