@@ -23,7 +23,7 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.base.ref }}
       - if: ${{ steps.dependabot-metadata.outputs.package-ecosystem == 'go_modules' }}
-        run: git reset --hard ${{ github.event.pull_request.head.ref }}
+        run: git reset --hard ${{ github.event.pull_request.head.sha }}
       - uses: actions/setup-go@v6
         if: ${{ steps.dependabot-metadata.outputs.package-ecosystem == 'go_modules' }}
         with:
