@@ -5,7 +5,7 @@ on:
 
 permissions:
   contents: write
-  pull-requests: read
+  pull-requests: write
 jobs:
   post:
     if: ${{ github.event.pull_request.user.login == 'dependabot[bot]' }}
