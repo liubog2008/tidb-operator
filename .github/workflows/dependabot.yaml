@@ -30,7 +30,8 @@ jobs:
           make build
       - name: git update
         if: ${{ steps.dependabot-metadata.outputs.package-ecosystem == 'go_modules' }}
-        uses: stefanzweifel/git-auto-commit-action@v7
+        uses: peter-evans/create-pull-request@v7
         with:
-          commit_options: '--signoff'
-          commit_message: "post update go dependencies"
+          signoff: true
+          sign-commits: true
+          branch: ${{ github.event.pull_request.head.ref }}
