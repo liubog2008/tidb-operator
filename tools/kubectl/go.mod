@@ -73,7 +73,7 @@ require (
 	gopkg.in/inf.v0 v0.9.1 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 	k8s.io/api v0.32.6 // indirect
-	k8s.io/apimachinery v0.32.6 // indirect
+	k8s.io/apimachinery v0.32.10 // indirect
 	k8s.io/cli-runtime v0.32.6 // indirect
 	k8s.io/client-go v0.32.6 // indirect
 	k8s.io/component-base v0.32.6 // indirect
