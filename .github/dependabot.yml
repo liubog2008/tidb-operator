@@ -11,14 +11,19 @@ updates:
   - dependency-name: "helm.sh/helm/v3"
   - dependency-name: "github.com/apache/skywalking-eyes"
   - dependency-name: "go.uber.org/mock"
-  - dependency-name: "k8s.io/*"
-  - dependency-name: "sigs.k8s.io/*"
+  - dependency-name: "k8s.io/kubernetes"
+  - dependency-name: "k8s.io/code-generator"
+  - dependency-name: "sigs.k8s.io/controller-tools"
   ignore:
   - dependency-name: "k8s.io/*"
     update-types:
     - "version-update:semver-major"
     - "version-update:semver-minor"
   - dependency-name: "sigs.k8s.io/*"
+    update-types:
+    - "version-update:semver-major"
+    - "version-update:semver-minor"
+  - dependency-name: "helm.sh/helm/v3"
     update-types:
     - "version-update:semver-major"
     - "version-update:semver-minor"
