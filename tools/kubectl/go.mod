@@ -5,6 +5,11 @@ go 1.24.0
 tool k8s.io/kubernetes/cmd/kubectl
 
 require (
+	k8s.io/kubectl v0.32.6
+	k8s.io/kubernetes v1.32.6
+)
+
+require (
 	github.com/Azure/go-ansiterm v0.0.0-20230124172434-306776ec8161 // indirect
 	github.com/MakeNowJust/heredoc v1.0.0 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
@@ -80,8 +85,6 @@ require (
 	k8s.io/component-helpers v0.32.6 // indirect
 	k8s.io/klog/v2 v2.130.1 // indirect
 	k8s.io/kube-openapi v0.0.0-20241105132330-32ad38e42d3f // indirect
-	k8s.io/kubectl v0.32.6 // indirect
-	k8s.io/kubernetes v1.32.6 // indirect
 	k8s.io/metrics v0.32.6 // indirect
 	k8s.io/utils v0.0.0-20241104100929-3ea5e8cea738 // indirect
 	sigs.k8s.io/json v0.0.0-20241010143419-9aa6b5e7a4b3 // indirect
