@@ -28,40 +28,40 @@ updates:
     - "version-update:semver-major"
     - "version-update:semver-minor"
 
-- package-ecosystem: "gomod"
-  directories:
-  - "/api"
-  - "/tests/validation"
-  - "/"
-  schedule:
-    interval: "daily"
-  allow:
-  - dependency-name: "k8s.io/*"
-  - dependency-name: "sigs.k8s.io/*"
-  - dependency-name: "github.com/Azure/azure-sdk-for-go/*"
-  - dependency-name: "github.com/aws/aws-sdk-go-v2/*"
-  - dependency-name: "github.com/aws/smithy-go"
-  - dependency-type: "indirect"
-  ignore:
-  - dependency-name: "k8s.io/*"
-    update-types:
-    - "version-update:semver-major"
-    - "version-update:semver-minor"
-  - dependency-name: "sigs.k8s.io/*"
-    update-types:
-    - "version-update:semver-major"
-    - "version-update:semver-minor"
-  groups:
-    k8s:
-      patterns:
-      - k8s.io/*
-      - sigs.k8s.io/*
-      update-types:
-      - patch
-    aws:
-      patterns:
-      - "github.com/aws/aws-sdk-go-v2/*"
-      - "github.com/aws/smithy-go"
-    azure:
-      patterns:
-      - "github.com/Azure/azure-sdk-for-go/*"
+# - package-ecosystem: "gomod"
+#   directories:
+#   - "/api"
+#   - "/tests/validation"
+#   - "/"
+#   schedule:
+#     interval: "daily"
+#   allow:
+#   - dependency-name: "k8s.io/*"
+#   - dependency-name: "sigs.k8s.io/*"
+#   - dependency-name: "github.com/Azure/azure-sdk-for-go/*"
+#   - dependency-name: "github.com/aws/aws-sdk-go-v2/*"
+#   - dependency-name: "github.com/aws/smithy-go"
+#   - dependency-type: "indirect"
+#   ignore:
+#   - dependency-name: "k8s.io/*"
+#     update-types:
+#     - "version-update:semver-major"
+#     - "version-update:semver-minor"
+#   - dependency-name: "sigs.k8s.io/*"
+#     update-types:
+#     - "version-update:semver-major"
+#     - "version-update:semver-minor"
+#   groups:
+#     k8s:
+#       patterns:
+#       - k8s.io/*
+#       - sigs.k8s.io/*
+#       update-types:
+#       - patch
+#     aws:
+#       patterns:
+#       - "github.com/aws/aws-sdk-go-v2/*"
+#       - "github.com/aws/smithy-go"
+#     azure:
+#       patterns:
+#       - "github.com/Azure/azure-sdk-for-go/*"
