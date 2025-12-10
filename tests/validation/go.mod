@@ -1,6 +1,6 @@
 module github.com/pingcap/tidb-operator/tests/validation
 
-go 1.23.0
+go 1.24.0
 
 require (
 	github.com/stretchr/testify v1.10.0
@@ -54,7 +54,7 @@ require (
 	golang.org/x/sys v0.31.0 // indirect
 	golang.org/x/term v0.30.0 // indirect
 	golang.org/x/text v0.23.0 // indirect
-	golang.org/x/time v0.8.0 // indirect
+	golang.org/x/time v0.14.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20241202173237-19429a94021a // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20241209162323-e6fa225c2576 // indirect
 	google.golang.org/protobuf v1.36.4 // indirect
