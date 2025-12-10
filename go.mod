@@ -67,13 +67,13 @@ require (
 	go.etcd.io/etcd/client/v3 v3.5.21
 	go.uber.org/mock v0.6.0
 	go.uber.org/zap v1.27.0
-	google.golang.org/protobuf v1.36.5
+	google.golang.org/protobuf v1.36.10
 	gopkg.in/yaml.v2 v2.4.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (
-	cel.dev/expr v0.19.1 // indirect
+	cel.dev/expr v0.25.1 // indirect
 	cloud.google.com/go v0.116.0 // indirect
 	cloud.google.com/go/auth v0.13.0 // indirect
 	cloud.google.com/go/auth/oauth2adapt v0.2.6 // indirect
