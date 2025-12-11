@@ -1,60 +1,46 @@
-version: 2
-updates:
+
 - package-ecosystem: "gomod"
   directories:
+  - "/"
+  - "/api"
+  - "/tests/validation"
   - "/tools/**/*"
   schedule:
     interval: "daily"
   allow:
-  - dependency-type: direct
-    dependency-name: "k8s.io/*"
+  - dependency-name: "k8s.io/*"
+  - dependency-name: "sigs.k8s.io/*"
+  - dependency-name: "github.com/Azure/azure-sdk-for-go/*"
+  - dependency-name: "github.com/aws/aws-sdk-go-v2/*"
+  - dependency-name: "github.com/aws/smithy-go"
+  - dependency-name: "helm.sh/helm/v3"
+  - dependency-name: "github.com/golangci/golangci-lint/v2"
+  - dependency-name: "github.com/onsi/ginkgo/v2"
+  - dependency-name: "github.com/onsi/gomega"
+  - dependency-name: "go.uber.org/mock"
+  - dependency-name: "github.com/apache/skywalking-eyes"
   ignore:
   - dependency-name: "k8s.io/*"
     update-types:
     - "version-update:semver-major"
     - "version-update:semver-minor"
+  - dependency-name: "sigs.k8s.io/*"
+    update-types:
+    - "version-update:semver-major"
+    - "version-update:semver-minor"
   groups:
-    kubectl:
+    k8s:
       patterns:
-      - k8s.io/*
-      - sigs.k8s.io/*
-      update-types:
-      - patch
-
-# - package-ecosystem: "gomod"
-#   directories:
-#   - "/api"
-#   - "/tests/validation"
-#   - "/"
-#   schedule:
-#     interval: "daily"
-#   allow:
-#   - dependency-name: "k8s.io/*"
-#   - dependency-name: "sigs.k8s.io/*"
-#   - dependency-name: "github.com/Azure/azure-sdk-for-go/*"
-#   - dependency-name: "github.com/aws/aws-sdk-go-v2/*"
-#   - dependency-name: "github.com/aws/smithy-go"
-#   - dependency-type: "indirect"
-#   ignore:
-#   - dependency-name: "k8s.io/*"
-#     update-types:
-#     - "version-update:semver-major"
-#     - "version-update:semver-minor"
-#   - dependency-name: "sigs.k8s.io/*"
-#     update-types:
-#     - "version-update:semver-major"
-#     - "version-update:semver-minor"
-#   groups:
-#     k8s:
-#       patterns:
-#       - k8s.io/*
-#       - sigs.k8s.io/*
-#       update-types:
-#       - patch
-#     aws:
-#       patterns:
-#       - "github.com/aws/aws-sdk-go-v2/*"
-#       - "github.com/aws/smithy-go"
-#     azure:
-#       patterns:
-#       - "github.com/Azure/azure-sdk-for-go/*"
+      - "k8s.io/*"
+      - "sigs.k8s.io/*"
+    aws:
+      patterns:
+      - "github.com/aws/aws-sdk-go-v2/*"
+      - "github.com/aws/smithy-go"
+    azure:
+      patterns:
+      - "github.com/Azure/azure-sdk-for-go/*"
+    ginkgo:
+      patterns:
+      - "github.com/onsi/ginkgo/v2"
+      - "github.com/onsi/gomega"
