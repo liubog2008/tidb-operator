@@ -41,6 +41,8 @@ jobs:
       - name: close and reopen to retrigger workflow
         if: ${{ steps.dependabot-metadata.outputs.package-ecosystem == 'go_modules' }}
         run: |
+          gh pr ready --undo ${{ github.event.pull_request.number }}
           gh pr comment ${{ github.event.pull_request.number }} -b "/ok-to-test"
+          gh pr comment ${{ github.event.pull_request.number }} -b "/test ready-for-review"
         env:
           GITHUB_TOKEN: ${{ github.token }}
