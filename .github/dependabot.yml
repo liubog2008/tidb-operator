@@ -55,3 +55,19 @@ updates:
       patterns:
       - "github.com/onsi/ginkgo/v2"
       - "github.com/onsi/gomega"
+
+# for security updates only
+- package-ecosystem: "gomod"
+  open-pull-requests-limit: 0
+  directories:
+  - "/"
+  - "/api"
+  - "/tests/validation"
+  - "/tools/**/*"
+  schedule:
+    interval: "daily"
+  allow:
+  - dependency-type: indirect
+  groups:
+    security:
+      applies-to: "security-updates"
