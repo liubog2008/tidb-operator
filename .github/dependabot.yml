@@ -70,4 +70,6 @@ updates:
   - dependency-type: indirect
   groups:
     security:
+      patterns:
+      - "*"
       applies-to: "security-updates"
