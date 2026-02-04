@@ -1,0 +1,136 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended"
+  ],
+  // Equivalent to dependabot's open-pull-requests-limit
+  "prConcurrentLimit": 20,
+  // Add labels to PRs (replaces the workflow's label management)
+  "labels": ["ok-to-test"],
+  // Only create PR after tests pass
+  "prCreation": "status-success",
+  // Post-upgrade tasks to run make tidy/generate/build
+  "postUpgradeTasks": {
+    "commands": [
+      "make tidy",
+      "make generate",
+      "make build"
+    ],
+    "fileFilters": ["**/*"],
+    "executionMode": "branch"
+  },
+  "packageRules": [
+    // Docker updates for /image directory
+    {
+      "matchManagers": ["dockerfile"],
+      "matchPaths": ["image/**"],
+      "schedule": ["before 9am every weekday"]
+    },
+    // When golang Docker image is updated, also update Go toolchain version
+    {
+      "matchManagers": ["dockerfile"],
+      "matchDepNames": ["golang"],
+      "postUpgradeTasks": {
+        "commands": [
+          "go get toolchain@go{{{newVersion}}}",
+          "make tidy",
+          "make generate",
+          "make build"
+        ],
+        "fileFilters": ["**/*"],
+        "executionMode": "branch"
+      }
+    },
+    // Go module updates - only allow specific dependencies
+    {
+      "matchManagers": ["gomod"],
+      "matchPaths": [
+        "go.mod",
+        "api/go.mod",
+        "tests/validation/go.mod",
+        "tools/**/go.mod"
+      ],
+      "schedule": ["before 9am every weekday"],
+      "enabled": false
+    },
+    // Enable only allowed Go dependencies
+    {
+      "matchManagers": ["gomod"],
+      "matchPackagePatterns": [
+        "^k8s\\.io/",
+        "^sigs\\.k8s\\.io/",
+        "^github\\.com/Azure/azure-sdk-for-go/",
+        "^github\\.com/aws/aws-sdk-go-v2/",
+        "^github\\.com/aws/smithy-go$",
+        "^helm\\.sh/helm/v3$",
+        "^github\\.com/golangci/golangci-lint/",
+        "^github\\.com/onsi/ginkgo/",
+        "^github\\.com/onsi/gomega$",
+        "^go\\.uber\\.org/mock$",
+        "^github\\.com/apache/skywalking-eyes$",
+        "^golang\\.org/"
+      ],
+      "enabled": true
+    },
+    // Ignore major and minor updates for k8s.io/*
+    {
+      "matchManagers": ["gomod"],
+      "matchPackagePatterns": ["^k8s\\.io/"],
+      "matchUpdateTypes": ["major", "minor"],
+      "enabled": false
+    },
+    // Ignore major and minor updates for sigs.k8s.io/*
+    {
+      "matchManagers": ["gomod"],
+      "matchPackagePatterns": ["^sigs\\.k8s\\.io/"],
+      "matchUpdateTypes": ["major", "minor"],
+      "enabled": false
+    },
+    // Ignore major and minor updates for helm.sh/helm/v3
+    {
+      "matchManagers": ["gomod"],
+      "matchPackagePatterns": ["^helm\\.sh/helm/v3$"],
+      "matchUpdateTypes": ["major", "minor"],
+      "enabled": false
+    },
+    // Group: golang
+    {
+      "matchManagers": ["gomod"],
+      "matchPackagePatterns": ["^golang\\.org/"],
+      "groupName": "golang"
+    },
+    // Group: k8s
+    {
+      "matchManagers": ["gomod"],
+      "matchPackagePatterns": [
+        "^k8s\\.io/",
+        "^sigs\\.k8s\\.io/"
+      ],
+      "groupName": "k8s"
+    },
+    // Group: aws
+    {
+      "matchManagers": ["gomod"],
+      "matchPackagePatterns": [
+        "^github\\.com/aws/aws-sdk-go-v2/",
+        "^github\\.com/aws/smithy-go$"
+      ],
+      "groupName": "aws"
+    },
+    // Group: azure
+    {
+      "matchManagers": ["gomod"],
+      "matchPackagePatterns": ["^github\\.com/Azure/azure-sdk-for-go/"],
+      "groupName": "azure"
+    },
+    // Group: ginkgo
+    {
+      "matchManagers": ["gomod"],
+      "matchPackagePatterns": [
+        "^github\\.com/onsi/ginkgo/",
+        "^github\\.com/onsi/gomega$"
+      ],
+      "groupName": "ginkgo"
+    }
+  ]
+}
