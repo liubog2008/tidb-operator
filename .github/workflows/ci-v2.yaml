@@ -22,7 +22,7 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     - name: cache image builder
-      uses: actions/cache@v4
+      uses: actions/cache@v5
       with:
         path: ./_output/cache
         key: ${{ runner.os }}-image-cache
@@ -70,7 +70,7 @@ jobs:
         go-version-file: ./go.mod
         cache-dependency-path: "**/*.sum"
     - name: cache golangci-lint
-      uses: actions/cache@v4
+      uses: actions/cache@v5
       with:
         path: ./_output/bin/golangci-lint
         key: ${{ runner.os }}-golangci-lint-${{ steps.setup-go.outputs.go-version }}
