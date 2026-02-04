@@ -7,39 +7,15 @@
   "prConcurrentLimit": 20,
   // Add labels to PRs (replaces the workflow's label management)
   "labels": ["ok-to-test"],
-  // Only create PR after tests pass
-  "prCreation": "status-success",
+  // Only create PR after github post action is done
+  "prCreation": "not-pending",
   // Post-upgrade tasks to run make tidy/generate/build
-  "postUpgradeTasks": {
-    "commands": [
-      "make tidy",
-      "make generate",
-      "make build"
-    ],
-    "fileFilters": ["**/*"],
-    "executionMode": "branch"
-  },
   "packageRules": [
     // Docker updates for /image directory
     {
       "matchManagers": ["dockerfile"],
       "matchPaths": ["image/**"],
       "schedule": ["before 9am every weekday"]
-    },
-    // When golang Docker image is updated, also update Go toolchain version
-    {
-      "matchManagers": ["dockerfile"],
-      "matchDepNames": ["golang"],
-      "postUpgradeTasks": {
-        "commands": [
-          "go get toolchain@go{{{newVersion}}}",
-          "make tidy",
-          "make generate",
-          "make build"
-        ],
-        "fileFilters": ["**/*"],
-        "executionMode": "branch"
-      }
     },
     // Go module updates - only allow specific dependencies
     {
