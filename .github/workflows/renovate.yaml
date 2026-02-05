@@ -23,9 +23,17 @@ jobs:
           make build
       - name: git update
         uses: planetscale/ghcommit-action@v0.2.19
+        id: commit
         with:
           commit_message: "post update after go dependencies updation"
           repo: ${{ github.repository }}
           branch: ${{ github.head_ref || github.ref_name }}
         env:
           GITHUB_TOKEN: ${{ github.token }}
+      - name: update status
+        if: ${{ steps.commit.outputs.commit-hash != '' }}
+        run: |
+          gh api repos/${{ github.repository }}/statuses/${{ steps.commit.outputs.commit-hash }} \
+            -f state=success \
+            -f context=renovate/post \
+            -f description="Running..."
