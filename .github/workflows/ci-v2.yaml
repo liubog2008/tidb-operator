@@ -27,7 +27,7 @@ jobs:
         path: ./_output/cache
         key: ${{ runner.os }}-image-cache
 
-    - uses: docker/setup-qemu-action@v3
+    - uses: docker/setup-qemu-action@v4
       with:
         image: gcr.io/pingcap-public/third-party/tonistiigi/binfmt:latest
 
