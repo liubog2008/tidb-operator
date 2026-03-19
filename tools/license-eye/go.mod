@@ -1,6 +1,6 @@
 module github.com/pingcap/tidb-operator/v2/tools/license-eye
 
-go 1.24.0
+go 1.25.0
 
 tool github.com/apache/skywalking-eyes/cmd/license-eye
 
@@ -43,7 +43,7 @@ require (
 	golang.org/x/crypto v0.39.0 // indirect
 	golang.org/x/mod v0.25.0 // indirect
 	golang.org/x/net v0.41.0 // indirect
-	golang.org/x/oauth2 v0.27.0 // indirect
+	golang.org/x/oauth2 v0.36.0 // indirect
 	golang.org/x/sync v0.15.0 // indirect
 	golang.org/x/sys v0.33.0 // indirect
 	golang.org/x/text v0.26.0 // indirect
