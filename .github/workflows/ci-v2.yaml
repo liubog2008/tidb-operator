@@ -92,7 +92,7 @@ jobs:
         make unit
 
     - name: Upload test coverage
-      uses: codecov/codecov-action@v5
+      uses: codecov/codecov-action@v6
       with:
         flags: unittest
         token: ${{ secrets.CODECOV_TOKEN }}
