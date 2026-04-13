@@ -18,7 +18,7 @@ jobs:
       - name: make release ${{ github.ref_name }}
         run: V_RELEASE=${{ github.ref_name }} make release
       - name: release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: |
             _output/manifests/tidb-operator.crds.yaml
