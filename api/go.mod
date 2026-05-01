@@ -3,7 +3,7 @@ module github.com/pingcap/tidb-operator/api/v2
 go 1.24.0
 
 require (
-	github.com/onsi/gomega v1.39.1
+	github.com/onsi/gomega v1.40.0
 	k8s.io/api v0.32.11
 	k8s.io/apimachinery v0.32.11
 	k8s.io/klog/v2 v2.130.1
