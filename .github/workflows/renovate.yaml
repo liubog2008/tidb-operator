@@ -22,7 +22,7 @@ jobs:
           make generate
           make build
       - name: git update
-        uses: planetscale/ghcommit-action@v0.2.19
+        uses: planetscale/ghcommit-action@v0.2.22
         id: commit
         with:
           commit_message: "post update after go dependencies updation"
